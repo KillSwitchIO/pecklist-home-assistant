@@ -50,7 +50,8 @@ hassfest:
   cache: []
   before_script: []
   script:
-    - mkdir -p /github && ln -s "$CI_PROJECT_DIR" /github/workspace
+    # The image looks in /github/workspace, which it ships as an empty folder.
+    - mkdir -p /github && rm -rf /github/workspace && ln -s "$CI_PROJECT_DIR" /github/workspace
     - cd /github/workspace && /usr/src/homeassistant/script/hassfest/docker/entrypoint.sh
 
 # The client against a real, throwaway PeckList server: the newest release, made fresh for this job.
