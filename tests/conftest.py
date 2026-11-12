@@ -35,6 +35,25 @@ class FakePeckList:
         self.log: list[tuple[str, dict[str, Any]]] = []
         self.revoked: list[tuple[int, str]] = []
         self.tasks: dict[str, dict[str, Any]] = {}
+        # None stands for a server older than the people route.
+        self.persons: list[dict[str, Any]] | None = [
+            {
+                "id": f"user:{USER_ID}",
+                "kind": "user",
+                "name": "Ben",
+                "handle": "ben",
+                "me": True,
+                "assignable": True,
+            },
+            {
+                "id": "user:01USERSAMAAAAAAAAAAAAAAAAA",
+                "kind": "user",
+                "name": "Sam",
+                "handle": "sam",
+                "me": False,
+                "assignable": True,
+            },
+        ]
         self.cursor_lost = False
         self._n = 0
         self.stream: asyncio.Queue[dict[str, Any] | Exception | None] = asyncio.Queue()
@@ -131,6 +150,11 @@ class FakePeckList:
             "key": {"id": "k1", "name": "ha", "scopes": list(self.scopes)},
         }
 
+    async def people(self) -> list[dict[str, Any]] | None:
+        self._guard()
+        self.calls.append(("people", None))
+        return self.persons
+
     async def changes(self, cursor: str | None) -> dict[str, Any]:
         self._guard()
         self.calls.append(("changes", cursor))
@@ -223,7 +247,7 @@ class FakePeckList:
             yield item
 
     def writes(self) -> list[tuple[str, Any]]:
-        return [call for call in self.calls if call[0] != "changes"]
+        return [call for call in self.calls if call[0] not in ("changes", "people")]
 
 
 @pytest.fixture(autouse=True)

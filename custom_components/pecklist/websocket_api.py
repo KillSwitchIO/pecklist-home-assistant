@@ -26,7 +26,8 @@ from .const import CONF_HA_USER, DOMAIN
 from .coordinator import PeckListCoordinator
 
 # Bumped when a command's answer changes shape, so a card can tell an older integration.
-API_VERSION = 1
+# 2: snapshots carry people; lists and tasks carry the apps' order.
+API_VERSION = 2
 
 # The task fields the card may set. Anything else in a write is refused before it leaves.
 TITLE = vol.All(cv.string, vol.Length(min=1, max=2000))
@@ -106,6 +107,7 @@ def _snapshot(coordinator: PeckListCoordinator) -> dict[str, Any]:
         "lists": coordinator.visible_lists(),
         "sections": list(coordinator.sections.values()),
         "tags": sorted(coordinator.tags.values(), key=lambda tag: str(tag.get("name") or "")),
+        "people": list(coordinator.people.values()),
         "tasks": coordinator.shown_tasks(),
     }
 

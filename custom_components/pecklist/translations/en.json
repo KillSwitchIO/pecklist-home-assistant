@@ -162,6 +162,9 @@
     },
     "nothing_to_change": {
       "message": "Nothing to change was given."
+    },
+    "person_not_found": {
+      "message": "Nobody named {person} that this account can assign."
     }
   },
   "services": {
@@ -278,6 +281,10 @@
         "remove_tags": {
           "name": "Remove tags",
           "description": "Tags to take off."
+        },
+        "assign": {
+          "name": "Assign to",
+          "description": "The people or groups to assign, by name: the whole set. \"me\" is the account itself; an empty list unassigns."
         }
       }
     },

@@ -61,6 +61,7 @@ async def events(request: web.Request) -> web.StreamResponse:
     await response.write(b'event: changed\ndata: {"cursor":"12","source":"web"}\n\n')
     await response.write(b": ping\n\n")
     await response.write(b"event: other\ndata: {}\n\n")
+    await response.write(b'event: notification\ndata: {"id":"N1","kind":"reminder","taskId":"T1"}\n\n')
     await response.write(b"event: changed\ndata: not json\n\n")
     return response
 
@@ -116,6 +117,27 @@ async def test_answers_and_refusals(
         await good.update_task("moved", {"title": "x"})
 
 
+async def test_people_and_a_server_without_them(
+    base: tuple[str, web.Application], session: aiohttp.ClientSession
+) -> None:
+    url, _ = base
+    client = PeckListClient(session, url, "pl_good")
+    assert await client.people() is None  # the route is not there: an older server
+
+    async def people(request: web.Request) -> web.Response:
+        return web.json_response({"items": [{"id": "user:U1", "kind": "user", "name": "Ben"}]})
+
+    other = web.Application()
+    other.router.add_get("/api/v1/people", people)
+    server = TestServer(other)
+    await server.start_server()
+    try:
+        newer = PeckListClient(session, str(server.make_url("")), "pl_good")
+        assert await newer.people() == [{"id": "user:U1", "kind": "user", "name": "Ben"}]
+    finally:
+        await server.close()
+
+
 async def test_an_unreachable_server(session: aiohttp.ClientSession) -> None:
     with pytest.raises(PeckListConnectionError):
         await PeckListClient(session, "http://127.0.0.1:9", "pl_good").me()
@@ -124,8 +146,13 @@ async def test_an_unreachable_server(session: aiohttp.ClientSession) -> None:
 async def test_the_event_stream(base: tuple[str, web.Application], session: aiohttp.ClientSession) -> None:
     url, _ = base
     seen = [event async for event in PeckListClient(session, url, "pl_good").events(5)]
-    # Open, a change with its cursor, and a change whose data could not be read.
-    assert seen == [{}, {"cursor": "12", "source": "web"}, {"changed": True}]
+    # Open, a change with its cursor, a notification, and a change whose data could not be read.
+    assert seen == [
+        {},
+        {"cursor": "12", "source": "web"},
+        {"notification": {"id": "N1", "kind": "reminder", "taskId": "T1"}},
+        {"changed": True},
+    ]
 
     with pytest.raises(PeckListAuthError):
         async for _ in PeckListClient(session, url, "pl_revoked").events(5):

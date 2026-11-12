@@ -29,8 +29,10 @@ from .const import (
     DEFAULT_COMPLETED_DAYS,
     DEFAULT_DATE_FIELD,
     DOMAIN,
+    EVENT_NOTIFICATION,
     EVENT_TASK,
     LOGGER,
+    PEOPLE_EVERY,
     POLL_WITH_STREAM,
     POLL_WITHOUT_STREAM,
     SCOPE_WRITE,
@@ -84,6 +86,10 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
         self.lists: dict[str, dict[str, Any]] = {}
         self.sections: dict[str, dict[str, Any]] = {}
         self.tags: dict[str, dict[str, Any]] = {}
+        # Who assignees are, by id (user:<id>, group:<id>). Empty on a server without /people.
+        self.people: dict[str, dict[str, Any]] = {}
+        self._people_at: datetime | None = None
+        self._people_missing = False
         self.cursor: str | None = None
         self.stream_connected = False
         self._revision = 0
@@ -112,9 +118,15 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
 
     def visible_lists(self) -> list[dict[str, Any]]:
         """Lists that get a to-do entity: not archived."""
+        # As the app shows them: the inbox, then by the apps' order key (by name on older servers).
         return sorted(
             (lst for lst in self.lists.values() if not lst.get("archived")),
-            key=lambda lst: (not lst.get("isInbox"), str(lst.get("name") or "").casefold()),
+            key=lambda lst: (
+                not lst.get("isInbox"),
+                lst.get("order") is None,
+                str(lst.get("order") or ""),
+                str(lst.get("name") or "").casefold(),
+            ),
         )
 
     def list_writable(self, list_id: str | None) -> bool:
@@ -188,12 +200,38 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
                 self.cursor = str(page["cursor"])
                 if not page.get("more"):
                     break
+            await self._async_update_people()
         except PeckListAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except (PeckListError, KeyError, TypeError) as err:
             raise UpdateFailed(str(err) or type(err).__name__) from err
         self._revision += 1
         return self._revision
+
+    async def _async_update_people(self) -> None:
+        """Read who assignees are: at first, now and then, and when a task names someone unknown."""
+        if self._people_missing:
+            return
+        now = dt_util.utcnow()
+        unknown = any(
+            who not in self.people
+            for task in self.tasks.values()
+            if is_open(task)
+            for who in task.get("assignees") or []
+        )
+        fresh = self._people_at is not None and now - self._people_at < PEOPLE_EVERY
+        if fresh and not (unknown and now - self._people_at > POLL_WITHOUT_STREAM):
+            return
+        people = await self.client.people()
+        self._people_at = now
+        if people is None:
+            # An older server: the names simply stay unknown.
+            self._people_missing = True
+            return
+        self.people = {person["id"]: person for person in people if person.get("id")}
+
+    def person_name(self, principal: str) -> str | None:
+        return (self.people.get(principal) or {}).get("name")
 
     def _forget(self) -> None:
         self.cursor = None
@@ -258,6 +296,29 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
                 "list_name": lst.get("name"),
                 "tags": task.get("tags") or [],
                 "priority": task.get("priority") or 0,
+                "assignees": [self.person_name(who) or who for who in task.get("assignees") or []],
+            },
+        )
+
+    def _notified(self, notice: dict[str, Any]) -> None:
+        """A notification PeckList made for this account: a reminder came due, a task was assigned."""
+        task = self.tasks.get(notice.get("taskId") or "") or {}
+        list_id = notice.get("listId") or task.get("listId")
+        actor = notice.get("actorId")
+        self.hass.bus.async_fire(
+            EVENT_NOTIFICATION,
+            {
+                "type": notice.get("kind"),
+                "entry_id": self.config_entry.entry_id,
+                "username": self.username,
+                "name": self.display_name or self.username,
+                "notification_id": notice.get("id"),
+                "at": notice.get("at"),
+                "task_id": notice.get("taskId"),
+                "title": task.get("title"),
+                "list_id": list_id,
+                "list_name": (self.lists.get(list_id or "") or {}).get("name"),
+                "by": self.person_name(f"user:{actor}") if actor else None,
             },
         )
 
@@ -349,6 +410,9 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
         while True:
             try:
                 async for event in self.client.events(STREAM_SILENCE):
+                    if "notification" in event:
+                        self._notified(event["notification"])
+                        continue
                     if not event:
                         LOGGER.debug("Live updates connected for %s", self.config_entry.title)
                         self._set_stream(True)

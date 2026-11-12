@@ -131,6 +131,16 @@ class PeckListClient:
             params["cursor"] = cursor
         return await self._request("GET", "/changes", params=params)
 
+    async def people(self) -> list[dict[str, Any]] | None:
+        """Who assignees are: people and groups with their names. None on a server without the route."""
+        try:
+            answer = await self._request("GET", "/people")
+        except PeckListApiError as err:
+            if err.status == 404:
+                return None
+            raise
+        return list(answer.get("items") or [])
+
     # Writes
 
     async def create_task(self, fields: dict[str, Any]) -> dict[str, Any]:
@@ -163,10 +173,12 @@ class PeckListClient:
     # Live updates
 
     async def events(self, silence: float) -> AsyncIterator[dict[str, Any]]:
-        """Yield the stream's "changed" events until it ends.
+        """Yield the stream's events until it ends.
 
-        Yields {} once when the stream is open. Raises PeckListApiError when the server refuses
-        it, and PeckListConnectionError when it breaks or goes silent.
+        Yields {} once when the stream is open, the data of each "changed" event, and
+        {"notification": data} for each "notification" (a reminder came due, a task was assigned).
+        Raises PeckListApiError when the server refuses the stream, and PeckListConnectionError
+        when it breaks or goes silent.
         """
         timeout = aiohttp.ClientTimeout(total=None, sock_connect=30, sock_read=silence)
         headers = {**self._headers, "Accept": "text/event-stream"}
@@ -186,12 +198,16 @@ class PeckListClient:
                 async for raw in response.content:
                     line = raw.decode("utf-8", "replace").rstrip("\r\n")
                     if not line:
-                        if event == "changed":
+                        if event in ("changed", "notification"):
                             try:
                                 parsed = json.loads("\n".join(data)) if data else {}
                             except ValueError:
                                 parsed = {}
-                            yield parsed if isinstance(parsed, dict) and parsed else {"changed": True}
+                            if event == "notification":
+                                if isinstance(parsed, dict) and parsed:
+                                    yield {"notification": parsed}
+                            else:
+                                yield parsed if isinstance(parsed, dict) and parsed else {"changed": True}
                         event, data = "", []
                     elif line.startswith("event:"):
                         event = line[6:].strip()

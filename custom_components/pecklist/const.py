@@ -36,6 +36,10 @@ STREAM_SILENCE = 90.0
 UPCOMING_DAYS = 7
 
 EVENT_TASK = "pecklist_task"
+EVENT_NOTIFICATION = "pecklist_notification"
+
+# Names change rarely: read the people again this often, and when an unknown assignee turns up.
+PEOPLE_EVERY = timedelta(minutes=30)
 
 SERVICE_ADD_TASK = "add_task"
 SERVICE_COMPLETE_TASK = "complete_task"

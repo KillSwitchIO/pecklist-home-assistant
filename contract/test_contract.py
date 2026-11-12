@@ -60,6 +60,32 @@ async def test_me_names_the_account_and_the_key(client: PeckListClient) -> None:
     assert "tasks:read" in me["key"]["scopes"] or "tasks:write" in me["key"]["scopes"]
 
 
+async def test_people_name_the_account_itself(client: PeckListClient) -> None:
+    people = await client.people()
+    if people is None:
+        pytest.skip("this server has no /api/v1/people yet")
+    me = await client.me()
+    mine = [person for person in people if person["me"]]
+    assert [person["id"] for person in mine] == [f"user:{me['id']}"]
+    assert mine[0]["name"] and mine[0]["kind"] == "user" and mine[0]["assignable"] is True
+
+
+async def test_tasks_and_lists_carry_the_apps_order(client: PeckListClient, list_id: str) -> None:
+    first = await client.create_task({"title": "Contract order 1", "listId": list_id})
+    if "order" not in first:
+        await client.delete_task(first["id"])
+        pytest.skip("this server does not send order yet")
+    second = await client.create_task({"title": "Contract order 2", "listId": list_id})
+    assert first["order"] < second["order"]
+    # A task sent back as it was read, order and all, is taken.
+    again = await client.update_task(first["id"], {**first, "priority": 1})
+    assert (again["priority"], again["order"]) == (1, first["order"])
+    lists = (await client.changes(None))["lists"]
+    assert all("order" in each and "icon" in each for each in lists)
+    for task in (first, second):
+        await client.delete_task(task["id"])
+
+
 async def test_a_wrong_key_is_an_auth_error() -> None:
     async with aiohttp.ClientSession() as session:
         with pytest.raises(PeckListAuthError):

@@ -103,6 +103,11 @@ update_task:
       selector:
         text:
           multiple: true
+    assign:
+      example: '["Sam"]'
+      selector:
+        text:
+          multiple: true
 
 delete_task:
   fields:

@@ -99,7 +99,7 @@ Under **Configure** on the entry:
 | `pecklist.add_task` | `text` read as quick add; optional `list` when the text names none with `^`. |
 | `pecklist.complete_task` | By `task_id`, or by `title` (and `list`). `status: wontdo` closes it as won't do. |
 | `pecklist.reopen_task` | By `task_id` or `title`. |
-| `pecklist.update_task` | `task_id` plus any of `title`, `notes`, `priority`, `date`, `clear_date`, `list`, `tags`, `add_tags`, `remove_tags`. |
+| `pecklist.update_task` | `task_id` plus any of `title`, `notes`, `priority`, `date`, `clear_date`, `list`, `tags`, `add_tags`, `remove_tags`, `assign` (names; `me` is the account itself). |
 | `pecklist.delete_task` | By `task_id` or `title`. PeckList's trash keeps it. |
 | `pecklist.get_tasks` | Answers tasks: `filter` is `open`, `today`, `overdue`, `upcoming` or `assigned`; optional `list`. |
 
@@ -137,9 +137,36 @@ triggers:
 ```
 
 Event data: `type` (`created`, `updated`, `completed`, `reopened`, `deleted`), `task_id`, `title`,
-`status`, `list_id`, `list_name`, `tags`, `priority`, `username` and `entry_id`.
+`status`, `list_id`, `list_name`, `tags`, `priority`, `assignees` (names), `username` and `entry_id`.
 
-Reminders are not events yet: the server does not announce them.
+### Reminders and other notifications
+
+When PeckList makes a notification for an account (a reminder came due, a task was assigned to
+you, a list was shared, someone commented), the integration fires `pecklist_notification`:
+
+```yaml
+automation:
+  - alias: Say reminders in the kitchen
+    triggers:
+      - trigger: event
+        event_type: pecklist_notification
+        event_data:
+          type: reminder
+    actions:
+      - action: tts.speak
+        target:
+          entity_id: tts.home_assistant_cloud
+        data:
+          media_player_entity_id: media_player.kitchen
+          message: "Reminder for {{ trigger.event.data.name }}: {{ trigger.event.data.title }}"
+```
+
+Event data: `type` (`reminder`, `assigned`, `groupAssigned`, `claimed`, `shared`, `commented`,
+`commentEdited`, `mentioned`), `task_id`, `title`, `list_id`, `list_name`, `by` (who did it, for
+the kinds that have someone), `at`, `username`, `name` and `entry_id`.
+
+This needs a PeckList server newer than 0.10: older ones only say that something changed.
+Notifications come over the live stream, so one made while the stream is down is not replayed.
 
 ## How it keeps up
 

@@ -18,5 +18,9 @@ First version.
   `delete_task`, `get_tasks`.
 - A `pecklist_task` event when a task is made, changed, completed, reopened or deleted.
 - Live updates from the server's event stream, with polling once a minute as the fallback.
+- A `pecklist_notification` event for reminders, assignments, shares and comments, on servers that
+  announce them.
+- Assignee names from the server's people, and `assign` by name in `update_task`.
+- Lists in the app's own order.
 - Websocket commands for the PeckList dashboard card.
 - Diagnostics without the key or any task.

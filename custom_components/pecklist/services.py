@@ -37,6 +37,7 @@ ATTR_CLEAR_DATE = "clear_date"
 ATTR_TAGS = "tags"
 ATTR_ADD_TAGS = "add_tags"
 ATTR_REMOVE_TAGS = "remove_tags"
+ATTR_ASSIGN = "assign"
 ATTR_FILTER = "filter"
 
 PRIORITIES = {"none": 0, "low": 1, "medium": 2, "high": 3}
@@ -74,6 +75,7 @@ UPDATE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_TAGS): _TAGS,
         vol.Optional(ATTR_ADD_TAGS): _TAGS,
         vol.Optional(ATTR_REMOVE_TAGS): _TAGS,
+        vol.Optional(ATTR_ASSIGN): _TAGS,
     }
 )
 GET_SCHEMA = vol.Schema(
@@ -109,6 +111,31 @@ def _list_id(coordinator: PeckListCoordinator, name: str | None) -> str | None:
     if lst is None:
         raise _error("list_not_found", list=name)
     return lst["id"]
+
+
+def _principals(coordinator: PeckListCoordinator, names: list[str]) -> list[str]:
+    """People and groups by name, handle or id, as /people names them. An empty list unassigns."""
+    found = []
+    for name in names:
+        wanted = name.strip().removeprefix("@").casefold()
+        match = next(
+            (
+                person
+                for person in coordinator.people.values()
+                if wanted
+                in (
+                    str(person.get("name") or "").casefold(),
+                    str(person.get("handle") or "").casefold(),
+                    person["id"].casefold(),
+                )
+                or (wanted == "me" and person.get("me"))
+            ),
+            None,
+        )
+        if match is None:
+            raise _error("person_not_found", person=name)
+        found.append(match["id"])
+    return found
 
 
 def _task(coordinator: PeckListCoordinator, call: ServiceCall, want_open: bool | None) -> Task:
@@ -177,6 +204,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         ):
             if attr in data:
                 changes[field] = data[attr]
+        if ATTR_ASSIGN in data:
+            changes["assignees"] = _principals(coordinator, data[ATTR_ASSIGN])
         local = dt_util.DEFAULT_TIME_ZONE
         if data.get(ATTR_CLEAR_DATE):
             changes.update(date_change(task, None, local, coordinator.date_field))

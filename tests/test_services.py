@@ -196,6 +196,98 @@ async def test_the_stream_nudges_a_refresh_and_slows_the_poll(
     assert coordinator.stream_connected
 
 
+async def test_a_reminder_on_the_stream_becomes_an_event_for_automations(
+    hass: HomeAssistant, server: FakePeckList, loaded: MockConfigEntry
+) -> None:
+    server.put_task("T1", "Take out the bins")
+    await refresh(hass, loaded)
+    heard = []
+    hass.bus.async_listen("pecklist_notification", lambda event: heard.append(event.data))
+    refreshes = len(server.calls)
+
+    server.stream.put_nowait(
+        {
+            "notification": {
+                "id": "N1",
+                "kind": "reminder",
+                "at": "2026-11-12T18:00:00+00:00",
+                "taskId": "T1",
+                "listId": CHORES,
+            }
+        }
+    )
+    server.stream.put_nowait(
+        {
+            "notification": {
+                "id": "N2",
+                "kind": "assigned",
+                "taskId": "T1",
+                "listId": CHORES,
+                "actorId": "01USERSAMAAAAAAAAAAAAAAAAA",
+            }
+        }
+    )
+    await asyncio.sleep(0.05)
+    await hass.async_block_till_done()
+
+    assert [(e["type"], e["title"], e["list_name"], e["by"]) for e in heard] == [
+        ("reminder", "Take out the bins", "Chores", None),
+        ("assigned", "Take out the bins", "Chores", "Sam"),
+    ]
+    assert heard[0]["username"] == "ben"
+    # A notification is not a change: nothing is read again for it.
+    assert len(server.calls) == refreshes
+
+
+async def test_people_give_assignees_their_names(
+    hass: HomeAssistant, server: FakePeckList, loaded: MockConfigEntry, hass_ws_client: WebSocketGenerator
+) -> None:
+    server.put_task("T1", "Dishes")
+    await refresh(hass, loaded)
+    assert server.calls.count(("people", None)) == 1  # read once, not on every refresh
+
+    await _call(hass, "update_task", {"task_id": "T1", "assign": ["sam", "me"]})
+    assert server.writes()[-1] == (
+        "update",
+        {"id": "T1", "assignees": ["user:01USERSAMAAAAAAAAAAAAAAAAA", "user:01USERAAAAAAAAAAAAAAAAAAAA"]},
+    )
+    with pytest.raises(ServiceValidationError) as raised:
+        await _call(hass, "update_task", {"task_id": "T1", "assign": ["Nobody"]})
+    assert raised.value.translation_key == "person_not_found"
+
+    ws = await hass_ws_client(hass)
+    await ws.send_json_auto_id({"type": "pecklist/subscribe", "entry_id": loaded.entry_id})
+    await ws.receive_json()
+    snapshot = (await ws.receive_json())["event"]
+    assert [p["name"] for p in snapshot["people"]] == ["Ben", "Sam"]
+
+
+async def test_an_older_server_without_people_still_loads(
+    hass: HomeAssistant, server: FakePeckList, entry: MockConfigEntry
+) -> None:
+    server.persons = None
+    server.put_task("T1", "Dishes", assignees=["user:01USERSAMAAAAAAAAAAAAAAAAA"])
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await refresh(hass, entry)
+    await refresh(hass, entry)
+    assert entry.runtime_data.people == {}
+    assert server.calls.count(("people", None)) == 1  # asked once, then left alone
+    assert hass.states.get("todo.pecklist_ben_chores").state == "1"
+
+
+async def test_lists_come_in_the_apps_order(
+    hass: HomeAssistant, server: FakePeckList, entry: MockConfigEntry
+) -> None:
+    server.add_list("01LISTZEBRAAAAAAAAAAAAAAAA", "Zebra", order="A")
+    server.add_list("01LISTAPPLEAAAAAAAAAAAAAAA", "Apple", order="B")
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    names = [lst["name"] for lst in entry.runtime_data.visible_lists()]
+    # The inbox first, lists with an order by it, the rest (an older server's) by name.
+    assert names == ["Inbox", "Zebra", "Apple", "Chores", "Household"]
+
+
 async def test_a_refused_stream_leaves_polling(
     hass: HomeAssistant, server: FakePeckList, entry: MockConfigEntry
 ) -> None:
