@@ -17,7 +17,7 @@ dishwasher* to Chores".
   adds at-a-glance, list, agenda and busy-day heatmap views with priorities, tags, sections and
   subtasks.
 
-It needs PeckList **0.10.0 or newer** (the task API) and Home Assistant **2026.10 or newer**.
+It needs PeckList **0.10.0 or newer** (the task API) and Home Assistant **2026.9 or newer**.
 
 ## Install
 

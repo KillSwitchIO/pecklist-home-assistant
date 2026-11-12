@@ -122,6 +122,7 @@ async def test_websocket_commands(
     assert answer["mine"] == entry.entry_id
     account = answer["accounts"][0]
     assert (account["username"], account["can_write"]) == ("ben", True)
+    assert account["name"] == hass_admin_user.name
     assert "api_key" not in str(answer) and "pl_secret" not in str(answer)
 
     await ws.send_json_auto_id({"type": "pecklist/subscribe", "entry_id": entry.entry_id})

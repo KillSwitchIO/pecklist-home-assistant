@@ -78,6 +78,7 @@ def _account(entry: Any) -> dict[str, Any]:
         "entry_id": entry.entry_id,
         "title": entry.title,
         "username": coordinator.username,
+        "name": coordinator.display_name or coordinator.username,
         "user_id": coordinator.user_id,
         "url": entry.data[CONF_URL],
         "can_write": coordinator.can_write,

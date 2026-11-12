@@ -79,6 +79,7 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
             async_get_clientsession(hass), entry.data[CONF_URL], entry.data[CONF_API_KEY]
         )
         self.me: dict[str, Any] = {}
+        self.display_name: str | None = None
         self.tasks: dict[str, Task] = {}
         self.lists: dict[str, dict[str, Any]] = {}
         self.sections: dict[str, dict[str, Any]] = {}
