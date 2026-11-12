@@ -1,0 +1,73 @@
+# Lint, test and validate on every push and merge request. Releases for HACS are made on GitHub
+# (the push mirror) by .github/workflows/release.yml when a version tag arrives.
+
+workflow:
+  auto_cancel:
+    on_new_commit: interruptible
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# GitLab's secret detection (free): flags keys or tokens committed by mistake.
+include:
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+stages:
+  - test
+
+default:
+  image: python:3.14
+  interruptible: true
+  cache:
+    key:
+      files:
+        - requirements_test.txt
+    paths:
+      - .pip/
+  before_script:
+    - pip install --cache-dir .pip --quiet -r requirements_test.txt
+
+lint:
+  stage: test
+  script:
+    - ruff check .
+    - ruff format --check .
+
+test:
+  stage: test
+  script:
+    - python -m pytest -q
+
+# Home Assistant's own check of the manifest, translations, services and config flow.
+hassfest:
+  stage: test
+  image:
+    name: ghcr.io/home-assistant/hassfest
+    entrypoint: ['']
+  cache: []
+  before_script: []
+  script:
+    - mkdir -p /github && ln -s "$CI_PROJECT_DIR" /github/workspace
+    - cd /github/workspace && /usr/src/homeassistant/script/hassfest/docker/entrypoint.sh
+
+# The client against a real, throwaway PeckList server: the newest release, made fresh for this job.
+contract:
+  stage: test
+  services:
+    - name: registry.gitlab.com/killswitch10/pecklist:latest
+      alias: pecklist
+  variables:
+    ADMIN_PASSWORD: contract-tests-only-$CI_JOB_ID
+    PECKLIST_ADMIN_PASSWORD: contract-tests-only-$CI_JOB_ID
+    PECKLIST_URL: http://pecklist:8080
+  script:
+    - export PECKLIST_TOKEN="$(python scripts/contract_token.py)"
+    - python -m pytest -q contract -p no:homeassistant -p no:socket
+
+# The template's job runs in GitLab's analyzer image: none of the pip setup above.
+secret_detection:
+  before_script: []
+  cache: []

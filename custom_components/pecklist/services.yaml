@@ -1,0 +1,142 @@
+add_task:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: pecklist
+    text:
+      required: true
+      example: "Empty the dishwasher today #home ^Chores !high"
+      selector:
+        text:
+    list:
+      example: Chores
+      selector:
+        text:
+
+complete_task:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: pecklist
+    task_id:
+      selector:
+        text:
+    title:
+      selector:
+        text:
+    list:
+      selector:
+        text:
+    status:
+      default: done
+      selector:
+        select:
+          translation_key: status
+          options:
+            - done
+            - wontdo
+
+reopen_task:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: pecklist
+    task_id:
+      selector:
+        text:
+    title:
+      selector:
+        text:
+    list:
+      selector:
+        text:
+
+update_task:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: pecklist
+    task_id:
+      required: true
+      selector:
+        text:
+    title:
+      selector:
+        text:
+    notes:
+      selector:
+        text:
+          multiline: true
+    priority:
+      selector:
+        select:
+          translation_key: priority
+          options:
+            - none
+            - low
+            - medium
+            - high
+    date:
+      example: "2026-11-20 09:00"
+      selector:
+        text:
+    clear_date:
+      selector:
+        boolean:
+    list:
+      selector:
+        text:
+    tags:
+      example: '["home", "yard"]'
+      selector:
+        text:
+          multiple: true
+    add_tags:
+      selector:
+        text:
+          multiple: true
+    remove_tags:
+      selector:
+        text:
+          multiple: true
+
+delete_task:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: pecklist
+    task_id:
+      selector:
+        text:
+    title:
+      selector:
+        text:
+    list:
+      selector:
+        text:
+
+get_tasks:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: pecklist
+    list:
+      selector:
+        text:
+    filter:
+      default: open
+      selector:
+        select:
+          translation_key: filter
+          options:
+            - open
+            - today
+            - overdue
+            - upcoming
+            - assigned

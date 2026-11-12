@@ -1,0 +1,49 @@
+{
+  "entity": {
+    "calendar": {
+      "tasks": {
+        "default": "mdi:calendar-check"
+      }
+    },
+    "sensor": {
+      "due_today": {
+        "default": "mdi:calendar-today"
+      },
+      "overdue": {
+        "default": "mdi:calendar-alert"
+      },
+      "upcoming": {
+        "default": "mdi:calendar-arrow-right"
+      },
+      "assigned": {
+        "default": "mdi:account-check"
+      },
+      "open": {
+        "default": "mdi:format-list-checks"
+      },
+      "list_open": {
+        "default": "mdi:format-list-checks"
+      }
+    }
+  },
+  "services": {
+    "add_task": {
+      "service": "mdi:plus-circle-outline"
+    },
+    "complete_task": {
+      "service": "mdi:check-circle-outline"
+    },
+    "reopen_task": {
+      "service": "mdi:restore"
+    },
+    "update_task": {
+      "service": "mdi:pencil-outline"
+    },
+    "delete_task": {
+      "service": "mdi:delete-outline"
+    },
+    "get_tasks": {
+      "service": "mdi:format-list-checks"
+    }
+  }
+}

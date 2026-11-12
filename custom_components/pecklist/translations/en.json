@@ -1,0 +1,325 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect PeckList",
+        "description": "Make an API key in PeckList under Settings > Account > API keys, with the permissions \"tasks:read\" and \"tasks:write\" (or only \"tasks:read\" for read-only lists).",
+        "data": {
+          "url": "Server address",
+          "api_key": "API key"
+        },
+        "data_description": {
+          "url": "The address you open PeckList at in a browser.",
+          "api_key": "Starts with pl_. It is stored in Home Assistant and sent only to your PeckList server."
+        }
+      },
+      "reauth_confirm": {
+        "title": "PeckList needs a new API key",
+        "description": "The key for {title} at {url} expired or was revoked. Make a new one in PeckList under Settings > Account > API keys.",
+        "data": {
+          "api_key": "API key"
+        },
+        "data_description": {
+          "api_key": "A key of the same PeckList account."
+        }
+      },
+      "reconfigure": {
+        "title": "Change the PeckList connection",
+        "description": "Use this when the server moved to another address, or to swap the key. The account must stay the same.",
+        "data": {
+          "url": "Server address",
+          "api_key": "API key"
+        },
+        "data_description": {
+          "url": "Where you open PeckList in a browser.",
+          "api_key": "A key of the same PeckList account."
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Enter the address with http:// or https://",
+      "invalid_auth": "The server does not know this key. It may be mistyped, expired or revoked.",
+      "missing_scope": "This key cannot read tasks. Make one with \"tasks:read\", and \"tasks:write\" to change tasks.",
+      "cannot_connect": "No PeckList server answered at this address.",
+      "rate_limited": "The server is busy with this account. Try again in a minute.",
+      "unknown": "Something unexpected went wrong. The log has the details."
+    },
+    "abort": {
+      "already_configured": "This PeckList account is already connected.",
+      "wrong_account": "That key belongs to a different PeckList account. Add it as its own entry instead.",
+      "reauth_successful": "The new key works.",
+      "reconfigure_successful": "The connection was updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "PeckList options",
+        "data": {
+          "date_field": "A date set in Home Assistant goes to",
+          "completed_days": "Days to keep showing closed tasks",
+          "ha_user": "Home Assistant user this account belongs to"
+        },
+        "data_description": {
+          "date_field": "Used for a task that has no date yet. A task that already has a due date or a scheduled date keeps using that one.",
+          "completed_days": "On the to-do lists and in the dashboard card. 0 hides closed tasks after the day they were closed.",
+          "ha_user": "The dashboard card can then show each person their own tasks. Everyone signed in to Home Assistant can still see every connected account's tasks."
+        }
+      }
+    }
+  },
+  "selector": {
+    "date_field": {
+      "options": {
+        "schedule": "The scheduled date (as PeckList's quick add does)",
+        "due": "The due date"
+      }
+    },
+    "status": {
+      "options": {
+        "done": "Done",
+        "wontdo": "Won't do"
+      }
+    },
+    "priority": {
+      "options": {
+        "none": "None",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      }
+    },
+    "filter": {
+      "options": {
+        "open": "Open",
+        "today": "Due today",
+        "overdue": "Overdue",
+        "upcoming": "Upcoming",
+        "assigned": "Assigned to me"
+      }
+    }
+  },
+  "entity": {
+    "calendar": {
+      "tasks": {
+        "name": "Tasks"
+      }
+    },
+    "sensor": {
+      "due_today": {
+        "name": "Due today"
+      },
+      "overdue": {
+        "name": "Overdue"
+      },
+      "upcoming": {
+        "name": "Upcoming"
+      },
+      "assigned": {
+        "name": "Assigned to me"
+      },
+      "open": {
+        "name": "Open tasks"
+      },
+      "list_open": {
+        "name": "{list} open tasks"
+      }
+    }
+  },
+  "exceptions": {
+    "auth_failed": {
+      "message": "PeckList no longer accepts the API key. Enter a new one under Settings > Devices & services."
+    },
+    "read_only_key": {
+      "message": "The API key may only read tasks. Make one with \"tasks:write\" to change them."
+    },
+    "forbidden": {
+      "message": "PeckList's sharing rules do not allow this change: {detail}"
+    },
+    "not_found": {
+      "message": "No such task: {detail}"
+    },
+    "rate_limited": {
+      "message": "PeckList is getting too many requests from this account. Try again in a minute."
+    },
+    "refused": {
+      "message": "PeckList refused the change: {detail}"
+    },
+    "cannot_connect": {
+      "message": "The PeckList server could not be reached: {detail}"
+    },
+    "entry_not_found": {
+      "message": "That PeckList account is not connected, or not loaded."
+    },
+    "entry_needed": {
+      "message": "More than one PeckList account is connected. Say which one with config_entry_id."
+    },
+    "list_not_found": {
+      "message": "No list named {list}."
+    },
+    "task_needed": {
+      "message": "Name the task with task_id, or with title."
+    },
+    "nothing_to_change": {
+      "message": "Nothing to change was given."
+    }
+  },
+  "services": {
+    "add_task": {
+      "name": "Add task",
+      "description": "Adds a task from a line of text, read the way PeckList's quick add reads it: dates, #tag, ^list, !high, @person and \"every week\".",
+      "fields": {
+        "config_entry_id": {
+          "name": "Account",
+          "description": "The PeckList account. Needed only when more than one is connected."
+        },
+        "text": {
+          "name": "Text",
+          "description": "Such as \"Empty the dishwasher today #home ^Chores !high\"."
+        },
+        "list": {
+          "name": "List",
+          "description": "The list to add to when the text names none with ^. A name or an id."
+        }
+      }
+    },
+    "complete_task": {
+      "name": "Complete task",
+      "description": "Closes a task. A repeating task moves on to its next date.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Account",
+          "description": "The PeckList account. Needed only when more than one is connected."
+        },
+        "task_id": {
+          "name": "Task ID",
+          "description": "The task's id."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Instead of an id: the title of an open task."
+        },
+        "list": {
+          "name": "List",
+          "description": "With a title: look only in this list."
+        },
+        "status": {
+          "name": "Close as",
+          "description": "Done, or won't do."
+        }
+      }
+    },
+    "reopen_task": {
+      "name": "Reopen task",
+      "description": "Opens a closed task again.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Account",
+          "description": "The PeckList account. Needed only when more than one is connected."
+        },
+        "task_id": {
+          "name": "Task ID",
+          "description": "The task's id."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Instead of an id: the title of a recently closed task."
+        },
+        "list": {
+          "name": "List",
+          "description": "With a title: look only in this list."
+        }
+      }
+    },
+    "update_task": {
+      "name": "Change task",
+      "description": "Changes a task's fields. Fields left out stay as they are.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Account",
+          "description": "The PeckList account. Needed only when more than one is connected."
+        },
+        "task_id": {
+          "name": "Task ID",
+          "description": "The task's id."
+        },
+        "title": {
+          "name": "Title",
+          "description": "A new title."
+        },
+        "notes": {
+          "name": "Notes",
+          "description": "New notes."
+        },
+        "priority": {
+          "name": "Priority",
+          "description": "None, low, medium or high."
+        },
+        "date": {
+          "name": "Date",
+          "description": "A date, or a date and time."
+        },
+        "clear_date": {
+          "name": "Clear the date",
+          "description": "Removes the date instead."
+        },
+        "list": {
+          "name": "List",
+          "description": "Moves the task to this list, with its subtasks."
+        },
+        "tags": {
+          "name": "Tags",
+          "description": "The whole set of tags."
+        },
+        "add_tags": {
+          "name": "Add tags",
+          "description": "Tags to add, keeping the others."
+        },
+        "remove_tags": {
+          "name": "Remove tags",
+          "description": "Tags to take off."
+        }
+      }
+    },
+    "delete_task": {
+      "name": "Delete task",
+      "description": "Deletes a task with its subtasks. It can be restored from PeckList's trash.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Account",
+          "description": "The PeckList account. Needed only when more than one is connected."
+        },
+        "task_id": {
+          "name": "Task ID",
+          "description": "The task's id."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Instead of an id: the task's title."
+        },
+        "list": {
+          "name": "List",
+          "description": "With a title: look only in this list."
+        }
+      }
+    },
+    "get_tasks": {
+      "name": "Get tasks",
+      "description": "Answers the open tasks of an account or a list, with every field.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Account",
+          "description": "The PeckList account. Needed only when more than one is connected."
+        },
+        "list": {
+          "name": "List",
+          "description": "Only this list. A name or an id."
+        },
+        "filter": {
+          "name": "Which",
+          "description": "All open tasks, or those due today, overdue, upcoming (the next 7 days) or assigned to you."
+        }
+      }
+    }
+  }
+}
