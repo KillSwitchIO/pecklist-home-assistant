@@ -1,0 +1,104 @@
+blueprint:
+  name: "PeckList: reminders on a phone, with Done and Tomorrow"
+  description: >-
+    Sends a PeckList reminder to a phone through the Home Assistant app, with two buttons: Done
+    closes the task, Tomorrow moves it a day. It can hold the reminder until a person is home.
+    Needs a PeckList server that announces notifications (newer than 0.10).
+  domain: automation
+  source_url: https://github.com/KillSwitchIO/pecklist-home-assistant/blob/main/blueprints/automation/pecklist/reminder_to_phone.yaml
+  input:
+    account:
+      name: PeckList account
+      description: Whose reminders these are.
+      selector:
+        config_entry:
+          integration: pecklist
+    notify_action:
+      name: Notify action
+      description: The phone's notify action, such as notify.mobile_app_bens_phone.
+      selector:
+        text: {}
+    person:
+      name: Hold until this person is home
+      description: Leave empty to send at once.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: person
+    hold_for:
+      name: Hold for at most
+      description: A reminder still held after this long is dropped.
+      default:
+        hours: 12
+      selector:
+        duration: {}
+    buttons_for:
+      name: Buttons work for
+      default:
+        hours: 4
+      selector:
+        duration: {}
+
+# One run per reminder, each waiting for its own button.
+mode: parallel
+max: 20
+
+variables:
+  account: !input account
+  person: !input person
+  task_id: "{{ trigger.event.data.task_id }}"
+  title: "{{ trigger.event.data.title or 'A task' }}"
+  done: "PECKLIST_DONE_{{ trigger.event.data.task_id }}"
+  tomorrow: "PECKLIST_TOMORROW_{{ trigger.event.data.task_id }}"
+
+triggers:
+  - trigger: event
+    event_type: pecklist_notification
+    event_data:
+      type: reminder
+
+conditions:
+  - condition: template
+    value_template: "{{ trigger.event.data.entry_id == account and trigger.event.data.task_id is not none }}"
+
+actions:
+  - wait_template: "{{ person == '' or is_state(person, 'home') }}"
+    timeout: !input hold_for
+    continue_on_timeout: false
+  - action: !input notify_action
+    data:
+      title: "{{ title }}"
+      message: "{{ trigger.event.data.list_name or 'PeckList' }}"
+      data:
+        tag: "pecklist-{{ task_id }}"
+        actions:
+          - action: "{{ done }}"
+            title: Done
+          - action: "{{ tomorrow }}"
+            title: Tomorrow
+  - wait_for_trigger:
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ done }}"
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ tomorrow }}"
+    timeout: !input buttons_for
+    continue_on_timeout: false
+  - choose:
+      - conditions: "{{ wait.trigger.event.data.action == done }}"
+        sequence:
+          - action: pecklist.complete_task
+            data:
+              config_entry_id: "{{ account }}"
+              task_id: "{{ task_id }}"
+      - conditions: "{{ wait.trigger.event.data.action == tomorrow }}"
+        sequence:
+          - action: pecklist.update_task
+            data:
+              config_entry_id: "{{ account }}"
+              task_id: "{{ task_id }}"
+              date: "{{ (now() + timedelta(days=1)).date() | string }}"

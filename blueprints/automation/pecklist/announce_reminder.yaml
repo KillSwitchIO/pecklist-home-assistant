@@ -1,0 +1,72 @@
+blueprint:
+  name: "PeckList: say reminders on a speaker"
+  description: >-
+    Speaks a PeckList reminder on a media player when it comes due, between the hours you choose.
+    Needs a PeckList server that announces notifications (newer than 0.10) and a text-to-speech
+    entity.
+  domain: automation
+  source_url: https://github.com/KillSwitchIO/pecklist-home-assistant/blob/main/blueprints/automation/pecklist/announce_reminder.yaml
+  input:
+    speaker:
+      name: Speaker
+      selector:
+        entity:
+          filter:
+            - domain: media_player
+    tts:
+      name: Text-to-speech
+      selector:
+        entity:
+          filter:
+            - domain: tts
+    message:
+      name: What to say
+      description: >-
+        A template. The reminder is in trigger.event.data: title, name (whose it is), list_name.
+      default: "Reminder for {{ trigger.event.data.name }}: {{ trigger.event.data.title }}"
+      selector:
+        template: {}
+    not_before:
+      name: Not before
+      default: "07:00:00"
+      selector:
+        time: {}
+    not_after:
+      name: Not after
+      default: "21:00:00"
+      selector:
+        time: {}
+    account:
+      name: Only this PeckList account
+      description: Leave empty for every connected account.
+      default: ""
+      selector:
+        config_entry:
+          integration: pecklist
+
+mode: queued
+max: 5
+
+variables:
+  account: !input account
+
+triggers:
+  - trigger: event
+    event_type: pecklist_notification
+    event_data:
+      type: reminder
+
+conditions:
+  - condition: template
+    value_template: "{{ account == '' or trigger.event.data.entry_id == account }}"
+  - condition: time
+    after: !input not_before
+    before: !input not_after
+
+actions:
+  - action: tts.speak
+    target:
+      entity_id: !input tts
+    data:
+      media_player_entity_id: !input speaker
+      message: !input message

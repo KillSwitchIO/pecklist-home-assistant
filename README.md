@@ -168,6 +168,21 @@ the kinds that have someone), `at`, `username`, `name` and `entry_id`.
 This needs a PeckList server newer than 0.10: older ones only say that something changed.
 Notifications come over the live stream, so one made while the stream is down is not replayed.
 
+## Blueprints
+
+Ready-made automations, in [`blueprints/automation/pecklist`](blueprints/automation/pecklist). In
+Home Assistant, open **Settings > Automations & scenes > Blueprints > Import blueprint** and paste
+the address of the file on GitHub.
+
+| Blueprint | |
+| --- | --- |
+| `add_task_when.yaml` | Adds a task when an entity changes to a state: the dishwasher finishes, the washer stops. The text is read like quick add. |
+| `announce_reminder.yaml` | Says a reminder on a speaker when it comes due, between the hours you choose. |
+| `reminder_to_phone.yaml` | Sends a reminder to a phone with **Done** and **Tomorrow** buttons, and can hold it until a person is home. |
+| `overdue_light.yaml` | Turns a light on in a color while a count (overdue, due today) is above zero. |
+
+The two reminder blueprints need a PeckList server that announces notifications (newer than 0.10).
+
 ## How it keeps up
 
 The integration keeps a copy of your tasks. It listens to the server's event stream for "something

@@ -22,5 +22,7 @@ First version.
   announce them.
 - Assignee names from the server's people, and `assign` by name in `update_task`.
 - Lists in the app's own order.
+- Blueprints: add a task when something happens, say reminders on a speaker, reminders on a phone
+  with Done and Tomorrow (held until someone is home, if you like), and a light for overdue tasks.
 - Websocket commands for the PeckList dashboard card.
 - Diagnostics without the key or any task.

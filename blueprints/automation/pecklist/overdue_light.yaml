@@ -1,0 +1,64 @@
+blueprint:
+  name: "PeckList: a light that shows overdue tasks"
+  description: >-
+    Turns a light on in a color while a PeckList count is above zero, and off when it is back to
+    zero. Use the Overdue sensor for a nudge lamp, or Due today.
+  domain: automation
+  source_url: https://github.com/KillSwitchIO/pecklist-home-assistant/blob/main/blueprints/automation/pecklist/overdue_light.yaml
+  input:
+    sensor:
+      name: PeckList count
+      description: Such as the Overdue sensor of an account.
+      selector:
+        entity:
+          filter:
+            - integration: pecklist
+              domain: sensor
+    light:
+      name: Light
+      selector:
+        entity:
+          filter:
+            - domain: light
+    color:
+      name: Color
+      default: [217, 119, 107]
+      selector:
+        color_rgb: {}
+    brightness:
+      name: Brightness
+      default: 40
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+
+mode: restart
+
+triggers:
+  - trigger: numeric_state
+    entity_id: !input sensor
+    above: 0
+    id: some
+  - trigger: numeric_state
+    entity_id: !input sensor
+    below: 1
+    id: none
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: some
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: !input light
+            data:
+              rgb_color: !input color
+              brightness_pct: !input brightness
+    default:
+      - action: light.turn_off
+        target:
+          entity_id: !input light

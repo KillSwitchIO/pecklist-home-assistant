@@ -1,0 +1,52 @@
+blueprint:
+  name: "PeckList: add a task when something happens"
+  description: >-
+    Adds a task to PeckList when an entity changes to a state: the dishwasher finishes, the washing
+    machine stops, the bins sensor says it is collection day. The text is read like PeckList's
+    quick add, so it can carry a date, a list, tags and a priority:
+    "Empty the dishwasher today ^Chores #home !high".
+  domain: automation
+  source_url: https://github.com/KillSwitchIO/pecklist-home-assistant/blob/main/blueprints/automation/pecklist/add_task_when.yaml
+  input:
+    entity:
+      name: When this
+      selector:
+        entity: {}
+    to_state:
+      name: Changes to
+      description: The state to wait for, as Developer tools shows it.
+      default: "off"
+      selector:
+        text: {}
+    stays_for:
+      name: And stays so for
+      default:
+        seconds: 0
+      selector:
+        duration: {}
+    text:
+      name: Add this task
+      description: Read like quick add. Dates, ^list, #tag, !high, @person and "every week" work.
+      selector:
+        text: {}
+    account:
+      name: PeckList account
+      description: Needed only when more than one account is connected.
+      default: ""
+      selector:
+        config_entry:
+          integration: pecklist
+
+mode: queued
+
+triggers:
+  - trigger: state
+    entity_id: !input entity
+    to: !input to_state
+    for: !input stays_for
+
+actions:
+  - action: pecklist.add_task
+    data:
+      config_entry_id: !input account
+      text: !input text
