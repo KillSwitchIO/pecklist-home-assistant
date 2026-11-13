@@ -5,6 +5,8 @@ matches `custom_components/pecklist/manifest.json`; the GitHub mirror publishes 
 
 ## Unreleased
 
+## 0.1.0 - 2026-11-13
+
 First version.
 
 - Connect a PeckList account with a server address and an API key; reauthentication when the key
