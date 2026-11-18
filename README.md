@@ -13,9 +13,9 @@ dishwasher* to Chores".
   (`Pay rent tomorrow 9am #bills ^Home !high every month`), plus complete, reopen, change, delete
   and get tasks.
 - **Live**: changes made on your phone or in the browser show within a couple of seconds.
-- **Dashboard card**: the separate [PeckList card](https://github.com/KillSwitchIO/pecklist-card)
-  adds at-a-glance, list, agenda and busy-day heatmap views with priorities, tags, sections and
-  subtasks.
+- **Dashboard card**: the PeckList card comes with the integration. It adds at-a-glance, list,
+  agenda and busy-day heatmap views with priorities, tags, sections and subtasks. See
+  [Dashboard card](#dashboard-card).
 
 It needs PeckList **0.10.0 or newer** (the task API) and Home Assistant **2026.9 or newer**.
 
@@ -53,6 +53,22 @@ by default.
 **Everyone signed in to your Home Assistant can see every connected account's tasks.** Home
 Assistant has no way to hide one person's entities from another. Connect only accounts whose tasks
 the whole household may see.
+
+## Dashboard card
+
+The PeckList card is part of the integration: there is nothing more to install. Once an account is
+connected, edit a dashboard, **Add card**, and pick **PeckList**. Reload the browser first if the
+card is not offered.
+
+The integration serves the card at `/pecklist/pecklist-card.js` and adds it to **Settings >
+Dashboards > Resources** by itself. If you keep your resources in YAML it loads the card with the
+frontend instead, and your YAML stays as it is.
+
+If you installed the card on its own before (the `pecklist-card` repository in HACS, or a copy in
+`config/www`), remove that copy and its resource, so the browser loads only this one.
+
+The card's views and options are described in the
+[card's README](https://github.com/KillSwitchIO/pecklist-card#views).
 
 ## What you get
 
@@ -225,8 +241,8 @@ python -m pytest contract -p no:homeassistant -p no:socket
 
 The project is developed on GitLab:
 [gitlab.com/killswitch10/pecklist-home-assistant](https://gitlab.com/killswitch10/pecklist-home-assistant).
-The GitHub repository is a read-only mirror for HACS; please open issues and merge requests on
-GitLab.
+The GitHub repository is a mirror for HACS. Please report problems in its
+[issues](https://github.com/KillSwitchIO/pecklist-home-assistant/issues).
 
 ## License
 

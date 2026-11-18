@@ -5,6 +5,14 @@ matches `custom_components/pecklist/manifest.json`; the GitHub mirror publishes 
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-17
+
+- The dashboard card now ships with the integration. Home Assistant serves it at
+  `/pecklist/pecklist-card.js` and the integration adds it to the dashboard resources on setup, so
+  the card no longer needs installing on its own. With resources kept in YAML, the frontend loads
+  it instead. If you installed the card separately, remove that copy and its resource.
+- The link for reporting problems now goes to the issues on GitHub.
+
 ## 0.1.0 - 2026-11-13
 
 First version.

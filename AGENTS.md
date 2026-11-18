@@ -16,9 +16,11 @@ connects to a PeckList server through its Task API v1.
   server's answer at once.
 - No polling faster than once a minute. The event stream is the main signal.
 - A PATCH sends only the fields that changed, so an edit made meanwhile on another device survives.
-- The websocket commands in `websocket_api.py` are the dashboard card's API
-  (`killswitch10/pecklist-card`). Within `API_VERSION` they only gain fields. The key never leaves
-  Home Assistant.
+- The websocket commands in `websocket_api.py` are the dashboard card's API. Within `API_VERSION`
+  they only gain fields. The key never leaves Home Assistant.
+- The card ships in `custom_components/pecklist/www/pecklist-card.js`, and `card.py` serves it and
+  adds it to the dashboard resources. The file is built in `killswitch10/pecklist-card`, where the
+  card's source and tests live: never edit it here, copy that project's `dist/pecklist-card.js`.
 - User-facing text lives in `translations/en.json`: sentence case, plain words, no URLs.
 - Behavior changes come with tests in `tests/`, against the fake server in `tests/conftest.py`. Run
   the contract suite (`contract/`) against a throwaway PeckList container when the API use changes.

@@ -8,6 +8,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
 
+from .card import async_setup_card
 from .const import CONF_HA_USER, DOMAIN
 from .coordinator import PeckListConfigEntry, PeckListCoordinator
 from .services import async_setup_services
@@ -19,9 +20,10 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the actions and the dashboard card's websocket commands."""
+    """Register the actions, and the dashboard card with its websocket commands."""
     async_setup_services(hass)
     async_setup_websocket(hass)
+    await async_setup_card(hass)
     return True
 
 

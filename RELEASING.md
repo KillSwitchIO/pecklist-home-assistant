@@ -7,8 +7,8 @@ release is a plain `x.y.z` tag that matches `custom_components/pecklist/manifest
 
 - [ ] The GitLab project is public and mirrors one way to `KillSwitchIO/pecklist-home-assistant`.
 - [ ] On GitHub: a description, topics (`home-assistant`, `hacs`, `integration`, `pecklist`,
-      `todo`), and issues turned on. HACS checks all three, even though the README sends people to
-      GitLab for issues.
+      `todo`), and issues turned on. HACS checks all three, and the README sends people to the
+      GitHub issues.
 - [ ] GitHub recognises the license as MIT (the repository page shows it).
 - [ ] The **Validate** workflow on GitHub is green: hassfest and the HACS check, with nothing
       ignored.
@@ -21,10 +21,13 @@ release is a plain `x.y.z` tag that matches `custom_components/pecklist/manifest
 2. Check the PeckList server versions the README names still hold. The reminder event, assignee
    names and list order need a server with the people, order and notification additions to the
    task API.
-3. On a branch:
+3. If the card changed, copy `dist/pecklist-card.js` from the card project
+   (`killswitch10/pecklist-card`, at its released tag) to
+   `custom_components/pecklist/www/pecklist-card.js`, and name the card version in the changelog.
+4. On a branch:
    - set `version` in `custom_components/pecklist/manifest.json`;
    - in `CHANGELOG.md`, move the notes under **Unreleased** to a heading for the version and date.
-4. Run everything:
+5. Run everything:
 
    ```bash
    ruff check . && ruff format --check . && python -m pytest
@@ -33,11 +36,11 @@ release is a plain `x.y.z` tag that matches `custom_components/pecklist/manifest
 
    and the contract tests against a throwaway PeckList container (see the README).
 
-5. Merge to `main`, wait for the GitLab pipeline, then tag the merge commit `x.y.z` (no `v`) and
+6. Merge to `main`, wait for the GitLab pipeline, then tag the merge commit `x.y.z` (no `v`) and
    push the tag.
-6. The tag mirrors to GitHub, where the **Release** workflow checks it against the manifest and
+7. The tag mirrors to GitHub, where the **Release** workflow checks it against the manifest and
    publishes the GitHub release. HACS offers it within a few hours.
-7. Install the release on a Home Assistant through HACS and check that the integration loads and
+8. Install the release on a Home Assistant through HACS and check that the integration loads and
    the lists show.
 
 ## If a release is bad
