@@ -54,6 +54,26 @@ hassfest:
     - mkdir -p /github && rm -rf /github/workspace && ln -s "$CI_PROJECT_DIR" /github/workspace
     - cd /github/workspace && /usr/src/homeassistant/script/hassfest/docker/entrypoint.sh
 
+# The dashboard card: the bundle in git must be what card/ builds, and its own checks pass.
+card:
+  stage: test
+  image: node:24-bookworm-slim
+  cache:
+    key:
+      files:
+        - card/package-lock.json
+    paths:
+      - card/.npm/
+  before_script:
+    - cd card
+    - npm ci --cache .npm --prefer-offline --no-audit --no-fund
+  script:
+    - cp ../custom_components/pecklist/www/pecklist-card.js /tmp/committed.js
+    - npm run build
+    - cmp /tmp/committed.js ../custom_components/pecklist/www/pecklist-card.js
+    - npm run lint
+    - npm test
+
 # The client against a real, throwaway PeckList server: the newest release, made fresh for this job.
 contract:
   stage: test

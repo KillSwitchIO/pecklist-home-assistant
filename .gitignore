@@ -7,3 +7,7 @@ __pycache__/
 .vscode
 .idea
 .DS_Store
+# The card's build: only the bundle in custom_components/pecklist/www/ is kept.
+node_modules/
+card/dist/
+*.map

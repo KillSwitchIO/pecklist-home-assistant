@@ -1,0 +1,10 @@
+# The card's TypeScript uses tabs; the rest of the repository follows the file one level up.
+[*]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+quote_type = single
+
+[*.{yml,yaml,md}]
+indent_style = space
+indent_size = 2

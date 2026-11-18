@@ -21,9 +21,9 @@ release is a plain `x.y.z` tag that matches `custom_components/pecklist/manifest
 2. Check the PeckList server versions the README names still hold. The reminder event, assignee
    names and list order need a server with the people, order and notification additions to the
    task API.
-3. If the card changed, copy `dist/pecklist-card.js` from the card project
-   (`killswitch10/pecklist-card`, at its released tag) to
-   `custom_components/pecklist/www/pecklist-card.js`, and name the card version in the changelog.
+3. If the card changed, check `custom_components/pecklist/www/pecklist-card.js` is what `card/`
+   builds (`cd card && npm ci && npm run build`, then `git status` shows nothing new), and look at
+   `npm run demo` in light and dark.
 4. On a branch:
    - set `version` in `custom_components/pecklist/manifest.json`;
    - in `CHANGELOG.md`, move the notes under **Unreleased** to a heading for the version and date.
@@ -32,6 +32,7 @@ release is a plain `x.y.z` tag that matches `custom_components/pecklist/manifest
    ```bash
    ruff check . && ruff format --check . && python -m pytest
    docker run --rm -v "$PWD:/github/workspace" ghcr.io/home-assistant/hassfest
+   (cd card && npm run lint && npm test)
    ```
 
    and the contract tests against a throwaway PeckList container (see the README).

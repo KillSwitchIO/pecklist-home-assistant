@@ -68,7 +68,7 @@ If you installed the card on its own before (the `pecklist-card` repository in H
 `config/www`), remove that copy and its resource, so the browser loads only this one.
 
 The card's views and options are described in the
-[card's README](https://github.com/KillSwitchIO/pecklist-card#views).
+[card's README](card/README.md#views).
 
 ## What you get
 
