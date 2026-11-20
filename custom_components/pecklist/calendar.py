@@ -40,13 +40,13 @@ class PeckListCalendar(PeckListEntity, CalendarEntity):
         super().__init__(coordinator, "calendar")
 
     def _events(self) -> list[tuple[Span, Task]]:
-        local = dt_util.DEFAULT_TIME_ZONE
+        zones = self.coordinator.zones()
         hidden = {lid for lid, lst in self.coordinator.lists.items() if lst.get("archived")}
         events = []
         for task in self.coordinator.tasks.values():
             if not is_open(task) or task.get("listId") in hidden:
                 continue
-            span = span_of(task, local)
+            span = span_of(task, zones)
             if span is not None:
                 events.append((span, task))
         events.sort(key=lambda pair: (_moment(pair[0].start), pair[1].get("title") or ""))

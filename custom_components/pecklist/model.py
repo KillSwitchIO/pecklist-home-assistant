@@ -3,25 +3,52 @@
 A task carries its dates as the task API sends them: a schedule ({"start", "end", "allDay",
 "timeZone"}) and a due date ({"at", "allDay", "timeZone"}), each a local date ("2026-11-10") or a
 local date-time ("2026-11-10T09:00") in an IANA zone.
+
+Loading a zone reads a file, so this module never loads one: the coordinator resolves the zones
+its tasks name off the event loop, and passes them in as `Zones`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, tzinfo
 from typing import Any
-from zoneinfo import ZoneInfo
 
 Task = dict[str, Any]
 
 DEFAULT_EVENT_LENGTH = timedelta(minutes=30)
 
 
+@dataclass(frozen=True)
+class Zones:
+    """Home Assistant's zone, and the task zones already loaded, by IANA name."""
+
+    local: tzinfo
+    known: Mapping[str, tzinfo] = field(default_factory=dict)
+
+    def get(self, name: str | None) -> tzinfo:
+        """A loaded zone; Home Assistant's own for no zone, or one not loaded (unknown)."""
+        if not name:
+            return self.local
+        return self.known.get(name, self.local)
+
+
+def zone_names(tasks: Iterable[Task]) -> set[str]:
+    """The IANA zones a set of tasks name, so they can be loaded ahead of time."""
+    names: set[str] = set()
+    for task in tasks:
+        for part in (task.get("due"), task.get("schedule")):
+            if isinstance(part, dict) and isinstance(part.get("timeZone"), str) and part["timeZone"]:
+                names.add(part["timeZone"])
+    return names
+
+
 def is_open(task: Task) -> bool:
     return task.get("status") == "open"
 
 
-def parse_local(value: str | None, zone: str | None, fallback: tzinfo) -> date | datetime | None:
+def parse_local(value: str | None, zone: str | None, zones: Zones) -> date | datetime | None:
     """A task's date string as a date, or as a date-time in its own zone."""
     if not value:
         return None
@@ -33,11 +60,7 @@ def parse_local(value: str | None, zone: str | None, fallback: tzinfo) -> date |
         return None
     if parsed.tzinfo is not None:
         return parsed
-    try:
-        tz: tzinfo = ZoneInfo(zone) if zone else fallback
-    except (KeyError, ValueError):
-        tz = fallback
-    return parsed.replace(tzinfo=tz)
+    return parsed.replace(tzinfo=zones.get(zone))
 
 
 def parse_utc(value: str | None) -> datetime | None:
@@ -50,16 +73,16 @@ def parse_utc(value: str | None) -> datetime | None:
         return None
 
 
-def due_value(task: Task, fallback: tzinfo) -> date | datetime | None:
+def due_value(task: Task, zones: Zones) -> date | datetime | None:
     """The one date a to-do item shows: the due date, else the scheduled start."""
     due = task.get("due")
     if due:
-        value = parse_local(due.get("at"), due.get("timeZone"), fallback)
+        value = parse_local(due.get("at"), due.get("timeZone"), zones)
         if value is not None:
             return value
     schedule = task.get("schedule")
     if schedule:
-        return parse_local(schedule.get("start"), schedule.get("timeZone"), fallback)
+        return parse_local(schedule.get("start"), schedule.get("timeZone"), zones)
     return None
 
 
@@ -72,8 +95,8 @@ def day_of(value: date | datetime | None, local: tzinfo) -> date | None:
     return value
 
 
-def task_day(task: Task, local: tzinfo) -> date | None:
-    return day_of(due_value(task, local), local)
+def task_day(task: Task, zones: Zones) -> date | None:
+    return day_of(due_value(task, zones), zones.local)
 
 
 @dataclass(frozen=True)
@@ -85,17 +108,17 @@ class Span:
     all_day: bool
 
 
-def span_of(task: Task, fallback: tzinfo) -> Span | None:
+def span_of(task: Task, zones: Zones) -> Span | None:
     """A task as a calendar event: its schedule when it has one, else its due date."""
     schedule = task.get("schedule")
     start = end = None
     if schedule:
-        start = parse_local(schedule.get("start"), schedule.get("timeZone"), fallback)
-        end = parse_local(schedule.get("end"), schedule.get("timeZone"), fallback)
+        start = parse_local(schedule.get("start"), schedule.get("timeZone"), zones)
+        end = parse_local(schedule.get("end"), schedule.get("timeZone"), zones)
     if start is None:
         due = task.get("due")
         if due:
-            start = parse_local(due.get("at"), due.get("timeZone"), fallback)
+            start = parse_local(due.get("at"), due.get("timeZone"), zones)
         end = None
     if start is None:
         return None
@@ -121,7 +144,7 @@ def _format(value: date | datetime, local: tzinfo) -> tuple[str, bool, str | Non
 
 
 def date_change(
-    task: Task | None, value: date | datetime | None, local: tzinfo, new_field: str
+    task: Task | None, value: date | datetime | None, zones: Zones, new_field: str
 ) -> dict[str, Any]:
     """The PATCH fields that set (or clear) the date a to-do item shows.
 
@@ -137,6 +160,7 @@ def date_change(
         if schedule:
             return {"schedule": None}
         return {}
+    local = zones.local
     text, all_day, zone = _format(value, local)
     field = "due" if has_due else "schedule" if schedule else new_field
     if field == "due":
@@ -148,8 +172,8 @@ def date_change(
     if zone:
         change["timeZone"] = zone
     if schedule and schedule.get("end"):
-        old_start = parse_local(schedule.get("start"), schedule.get("timeZone"), local)
-        old_end = parse_local(schedule.get("end"), schedule.get("timeZone"), local)
+        old_start = parse_local(schedule.get("start"), schedule.get("timeZone"), zones)
+        old_end = parse_local(schedule.get("end"), schedule.get("timeZone"), zones)
         if (
             old_start is not None
             and old_end is not None
@@ -161,9 +185,9 @@ def date_change(
     return {"schedule": change}
 
 
-def sort_key(task: Task, local: tzinfo) -> tuple[Any, ...]:
+def sort_key(task: Task, zones: Zones) -> tuple[Any, ...]:
     """Open before closed, dated before undated, then by date, priority and age."""
-    day = task_day(task, local)
+    day = task_day(task, zones)
     return (
         0 if is_open(task) else 1,
         0 if day else 1,

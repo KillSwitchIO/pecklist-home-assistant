@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+import sys
+import threading
+from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components.todo import TodoListEntityFeature
@@ -285,3 +288,82 @@ async def test_sensors(
     loaded.runtime_data.async_day_changed(datetime.now(dt_util.UTC))
     await hass.async_block_till_done()
     assert (value("due_today"), value("overdue")) == ("0", "3")
+
+
+# Opens of tz files, by thread, while a test listens. An audit hook sees opens made in C too,
+# which zoneinfo does; audit hooks can't be removed, so one is added and switched on and off.
+_TZ_OPENS: list[tuple[int, str]] | None = None
+_TZ_HOOKED = False
+
+
+def _tz_open_hook(event: str, args: tuple) -> None:
+    if _TZ_OPENS is not None and event == "open" and "zoneinfo" in str(args[0]):
+        _TZ_OPENS.append((threading.get_ident(), str(args[0])))
+
+
+async def test_task_zones_are_loaded_off_the_event_loop(
+    hass: HomeAssistant, server: FakePeckList, entry: MockConfigEntry
+) -> None:
+    """Loading a zone reads a file: each zone a task names is loaded once, in the executor."""
+    global _TZ_OPENS, _TZ_HOOKED
+    if not _TZ_HOOKED:
+        sys.addaudithook(_tz_open_hook)
+        _TZ_HOOKED = True
+    asked: list[str] = []
+    real = dt_util.async_get_time_zone
+
+    async def spy(name: str):
+        asked.append(name)
+        return await real(name)
+
+    def at(when: str, zone: str) -> dict:
+        return {"at": when, "allDay": False, "timeZone": zone}
+
+    # Zones no other test loads, so each is read from disk here.
+    server.put_task("TZ", "Call Kathmandu", due=at("2026-11-13T08:00", "Asia/Kathmandu"))
+    server.put_task("TX", "Moon base", due=at("2026-11-13T08:00", "Mars/Base"))
+    loop_thread = threading.get_ident()
+    _TZ_OPENS = []
+    try:
+        with patch("custom_components.pecklist.coordinator.dt_util.async_get_time_zone", spy):
+            assert await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+            items = {i["summary"]: i for i in await _items(hass, CHORES_ENTITY)}
+            assert items["Call Kathmandu"]["due"] == "2026-11-13T08:00:00+05:45"
+            # An unknown zone reads as Home Assistant's own.
+            assert items["Moon base"]["due"] == "2026-11-13T08:00:00-06:00"
+            assert sorted(asked) == ["Asia/Kathmandu", "Mars/Base"]
+
+            # A zone first seen in a write's answer is loaded before the answer is used.
+            await entry.runtime_data.async_update_task(
+                "TZ", {"due": at("2026-11-13T08:00", "Pacific/Chatham")}
+            )
+            items = {i["summary"]: i for i in await _items(hass, CHORES_ENTITY)}
+            assert items["Call Kathmandu"]["due"] == "2026-11-13T08:00:00+13:45"
+
+            # Zones already loaded (or known to be unknown) are not asked for again.
+            server.put_task("TZ2", "Kathmandu again", due=at("2026-11-14T08:00", "Asia/Kathmandu"))
+            await refresh(hass, entry)
+            assert sorted(asked) == ["Asia/Kathmandu", "Mars/Base", "Pacific/Chatham"]
+
+            # The calendar reads the same zones.
+            answer = await hass.services.async_call(
+                "calendar",
+                "get_events",
+                {
+                    "entity_id": "calendar.pecklist_ben_tasks",
+                    "start_date_time": "2026-11-12 00:00:00",
+                    "end_date_time": "2026-11-16 00:00:00",
+                },
+                blocking=True,
+                return_response=True,
+            )
+            starts = {e["summary"]: e["start"] for e in answer["calendar.pecklist_ben_tasks"]["events"]}
+            assert starts["Kathmandu again"] == "2026-11-14T08:00:00+05:45"
+        opens = list(_TZ_OPENS)
+    finally:
+        _TZ_OPENS = None
+    # The zone files were read, and never on the event loop.
+    assert any("Kathmandu" in path for _, path in opens)
+    assert any("Chatham" in path for _, path in opens)
+    assert [path for thread, path in opens if thread == loop_thread] == []

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, tzinfo
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -41,7 +42,7 @@ from .const import (
     STREAM_SILENCE,
     UPCOMING_DAYS,
 )
-from .model import Task, is_open, parse_utc, sort_key, task_day
+from .model import Task, Zones, is_open, parse_utc, sort_key, task_day, zone_names
 
 type PeckListConfigEntry = ConfigEntry[PeckListCoordinator]
 
@@ -90,6 +91,9 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
         self.people: dict[str, dict[str, Any]] = {}
         self._people_at: datetime | None = None
         self._people_missing = False
+        # The zones tasks name, loaded off the event loop (loading one reads a file).
+        self._zones: dict[str, tzinfo] = {}
+        self._unknown_zones: set[str] = set()
         self.cursor: str | None = None
         self.stream_connected = False
         self._revision = 0
@@ -115,6 +119,20 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
     @property
     def date_field(self) -> str:
         return str(self.config_entry.options.get(CONF_DATE_FIELD, DEFAULT_DATE_FIELD))
+
+    def zones(self) -> Zones:
+        """Home Assistant's zone and the task zones loaded so far, for reading task dates."""
+        return Zones(dt_util.DEFAULT_TIME_ZONE, self._zones)
+
+    async def _async_load_zones(self, tasks: Iterable[Task | None]) -> None:
+        """Load the zones these tasks name that are not loaded yet, off the event loop."""
+        for name in zone_names(t for t in tasks if t) - self._zones.keys() - self._unknown_zones:
+            zone = await dt_util.async_get_time_zone(name)
+            if zone is None:
+                LOGGER.debug("Unknown time zone %s; using Home Assistant's", name)
+                self._unknown_zones.add(name)
+            else:
+                self._zones[name] = zone
 
     def visible_lists(self) -> list[dict[str, Any]]:
         """Lists that get a to-do entity: not archived."""
@@ -157,21 +175,21 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
     def shown_tasks(self, list_id: str | None = None) -> list[Task]:
         """Open and recently closed tasks, sorted, of one list or of every list that is not archived."""
         today = dt_util.now().date()
-        local = dt_util.DEFAULT_TIME_ZONE
+        zones = self.zones()
         if list_id is None:
             hidden = {lid for lid, lst in self.lists.items() if lst.get("archived")}
             tasks = (t for t in self.tasks.values() if t.get("listId") not in hidden)
         else:
             tasks = (t for t in self.tasks.values() if t.get("listId") == list_id)
-        return sorted((t for t in tasks if self._recent(t, today)), key=lambda t: sort_key(t, local))
+        return sorted((t for t in tasks if self._recent(t, today)), key=lambda t: sort_key(t, zones))
 
     def counts(self, list_id: str | None = None) -> Counts:
         today = dt_util.now().date()
-        local = dt_util.DEFAULT_TIME_ZONE
+        zones = self.zones()
         horizon = today + timedelta(days=UPCOMING_DAYS)
         me = f"user:{self.user_id}"
         open_tasks = [t for t in self.shown_tasks(list_id) if is_open(t)]
-        days = [(t, task_day(t, local)) for t in open_tasks]
+        days = [(t, task_day(t, zones)) for t in open_tasks]
         return Counts(
             open=open_tasks,
             today=[t for t, d in days if d == today],
@@ -196,6 +214,7 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
                     self._forget()
                     continue
                 first = self.cursor is None
+                await self._async_load_zones(page.get("tasks") or [])
                 self._apply_page(page, announce=not first)
                 self.cursor = str(page["cursor"])
                 if not page.get("more"):
@@ -324,8 +343,8 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
 
     # Writing. Each applies the server's answer at once; the stream's nudge then finds nothing new.
 
-    @callback
-    def _took(self, *tasks: Task | None) -> None:
+    async def _async_took(self, *tasks: Task | None) -> None:
+        await self._async_load_zones(tasks)
         for task in tasks:
             if task:
                 self._apply_task(task, announce=True)
@@ -334,12 +353,12 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
 
     async def async_create_task(self, fields: dict[str, Any]) -> Task:
         task = await self._write(self.client.create_task(fields))
-        self._took(task)
+        await self._async_took(task)
         return task
 
     async def async_quick_add(self, text: str, list_id: str | None = None) -> dict[str, Any]:
         answer = await self._write(self.client.quick_add(text, list_id, self.hass.config.time_zone))
-        self._took(answer.get("task"))
+        await self._async_took(answer.get("task"))
         if answer.get("task", {}).get("listId") not in self.lists or answer.get("tokens"):
             # Quick add can make tags (and names a list we may not have yet): read them soon.
             await self.async_request_refresh()
@@ -347,17 +366,17 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
 
     async def async_update_task(self, task_id: str, changes: dict[str, Any]) -> Task:
         task = await self._write(self.client.update_task(task_id, changes))
-        self._took(task)
+        await self._async_took(task)
         return task
 
     async def async_complete_task(self, task_id: str, status: str = "done") -> dict[str, Any]:
         answer = await self._write(self.client.complete_task(task_id, status))
-        self._took(answer.get("completed"), answer.get("next"))
+        await self._async_took(answer.get("completed"), answer.get("next"))
         return answer
 
     async def async_reopen_task(self, task_id: str) -> Task:
         task = await self._write(self.client.reopen_task(task_id))
-        self._took(task)
+        await self._async_took(task)
         return task
 
     async def async_delete_task(self, task_id: str) -> None:
@@ -365,7 +384,7 @@ class PeckListCoordinator(DataUpdateCoordinator[int]):
         old = self.tasks.get(task_id)
         if old is not None:
             # Its subtasks go with it; the changes feed says which.
-            self._took({**old, "deletedAt": dt_util.utcnow().isoformat()})
+            await self._async_took({**old, "deletedAt": dt_util.utcnow().isoformat()})
             await self.async_request_refresh()
 
     async def _write(self, call: Any) -> Any:

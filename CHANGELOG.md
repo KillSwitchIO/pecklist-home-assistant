@@ -5,6 +5,14 @@ matches `custom_components/pecklist/manifest.json`; the GitHub mirror publishes 
 
 ## Unreleased
 
+## 0.2.1 - 2026-11-19
+
+- Time zones named on tasks are loaded off the event loop. Loading a zone for the first time reads
+  its file from disk, which happened on the event loop while reading task dates for the to-do
+  lists, the calendar, the sensors and `pecklist.update_task`. The integration now loads each new
+  zone in the background when tasks arrive, and keeps it; an unknown zone reads as Home
+  Assistant's own.
+
 ## 0.2.0 - 2026-11-17
 
 - The dashboard card now ships with the integration. Home Assistant serves it at

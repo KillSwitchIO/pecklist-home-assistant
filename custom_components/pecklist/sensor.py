@@ -10,7 +10,6 @@ from homeassistant.components.sensor import SensorEntity, SensorEntityDescriptio
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .coordinator import Counts, PeckListConfigEntry, PeckListCoordinator
@@ -69,10 +68,10 @@ async def async_setup_entry(
 
 
 def _listed(coordinator: PeckListCoordinator, tasks: list[Task]) -> list[dict[str, Any]]:
-    local = dt_util.DEFAULT_TIME_ZONE
+    zones = coordinator.zones()
     out = []
     for task in tasks[:LISTED]:
-        when = due_value(task, local)
+        when = due_value(task, zones)
         lst = coordinator.lists.get(task.get("listId") or "") or {}
         out.append(
             {
