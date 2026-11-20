@@ -9,7 +9,6 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
-from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
 from .const import (
@@ -206,14 +205,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 changes[field] = data[attr]
         if ATTR_ASSIGN in data:
             changes["assignees"] = _principals(coordinator, data[ATTR_ASSIGN])
-        local = dt_util.DEFAULT_TIME_ZONE
+        zones = coordinator.zones()
         if data.get(ATTR_CLEAR_DATE):
-            changes.update(date_change(task, None, local, coordinator.date_field))
+            changes.update(date_change(task, None, zones, coordinator.date_field))
         elif ATTR_DATE in data:
             value: date | datetime = data[ATTR_DATE]
             if isinstance(value, datetime) and value.tzinfo is None:
-                value = value.replace(tzinfo=local)
-            changes.update(date_change(task, value, local, coordinator.date_field))
+                value = value.replace(tzinfo=zones.local)
+            changes.update(date_change(task, value, zones, coordinator.date_field))
         if not changes:
             raise _error("nothing_to_change")
         updated = await coordinator.async_update_task(task["id"], changes)

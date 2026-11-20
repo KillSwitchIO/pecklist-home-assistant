@@ -14,7 +14,6 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .coordinator import PeckListConfigEntry, PeckListCoordinator
@@ -111,13 +110,13 @@ class PeckListTodoList(PeckListEntity, TodoListEntity):
 
     @property
     def todo_items(self) -> list[TodoItem]:
-        local = dt_util.DEFAULT_TIME_ZONE
+        zones = self.coordinator.zones()
         return [
             TodoItem(
                 uid=task["id"],
                 summary=task.get("title") or "",
                 status=TodoItemStatus.NEEDS_ACTION if is_open(task) else TodoItemStatus.COMPLETED,
-                due=due_value(task, local),
+                due=due_value(task, zones),
                 description=task.get("notes") or None,
             )
             for task in self.coordinator.shown_tasks(self._list_id)
@@ -129,7 +128,7 @@ class PeckListTodoList(PeckListEntity, TodoListEntity):
         if item.description:
             fields["notes"] = item.description
         if item.due is not None:
-            fields.update(date_change(None, item.due, dt_util.DEFAULT_TIME_ZONE, coordinator.date_field))
+            fields.update(date_change(None, item.due, coordinator.zones(), coordinator.date_field))
         task = await coordinator.async_create_task(fields)
         if item.status == TodoItemStatus.COMPLETED:
             await coordinator.async_complete_task(task["id"])
@@ -144,14 +143,14 @@ class PeckListTodoList(PeckListEntity, TodoListEntity):
                 translation_key="not_found",
                 translation_placeholders={"detail": item.summary or item.uid or ""},
             )
-        local = dt_util.DEFAULT_TIME_ZONE
+        zones = coordinator.zones()
         changes: dict[str, Any] = {}
         if item.summary is not None and item.summary != task.get("title"):
             changes["title"] = item.summary
         if (item.description or "") != (task.get("notes") or ""):
             changes["notes"] = item.description or ""
-        if item.due != due_value(task, local):
-            changes.update(date_change(task, item.due, local, coordinator.date_field))
+        if item.due != due_value(task, zones):
+            changes.update(date_change(task, item.due, zones, coordinator.date_field))
         if changes:
             await coordinator.async_update_task(task["id"], changes)
         if item.status == TodoItemStatus.COMPLETED and is_open(task):
