@@ -27,6 +27,10 @@ const writes = (hass: FakeHass) => hass.calls.filter((c) => String(c.type).start
 const row = (root: ShadowRoot, title: string) => [...root.querySelectorAll('.row')].find((r) => r.querySelector('.name')!.textContent === title)!;
 
 afterEach(() => {
+	// happy-dom's ShadowRoot.activeElement throws once the focused element is gone: let go of it first.
+	let active = document.activeElement as HTMLElement | null;
+	while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement as HTMLElement;
+	active?.blur?.();
 	document.body.replaceChildren();
 });
 
@@ -683,5 +687,130 @@ describe('the card', () => {
 		outside.focus();
 		await settle(card);
 		expect(document.activeElement).toBe(outside);
+	});
+
+	it('a dialog opened from the keyboard takes the focus, keeps Tab inside, and gives it back (Manager)', async () => {
+		const { card, root } = await mount({ view: 'list', lists: ['chores'] });
+		const what = row(root, 'Mow the lawn').querySelector('.what') as HTMLElement;
+		what.focus();
+		what.click();
+		await settle(card);
+		const form = root.querySelector('.scrim form') as HTMLElement;
+		expect(root.activeElement).toBe(form);
+		// Tab from the last control goes round to the first; Shift+Tab from the dialog to the last.
+		const tab = (from: HTMLElement, shiftKey = false) => {
+			const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+			from.dispatchEvent(event);
+			return event.defaultPrevented;
+		};
+		const save = form.querySelector('.btn.primary') as HTMLElement;
+		const title = form.querySelector('input') as HTMLElement;
+		form.focus();
+		expect(tab(form, true)).toBe(true);
+		expect(root.activeElement).toBe(save);
+		expect(tab(save)).toBe(true);
+		expect(root.activeElement).toBe(title);
+		expect(tab(title)).toBe(false);
+		// Escape closes it, and the focus is back on the row that opened it.
+		title.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		await settle(card);
+		expect(root.querySelector('.scrim')).toBeNull();
+		expect((root.activeElement as HTMLElement).dataset.task).toBe('b2');
+		expect(root.activeElement!.classList.contains('what')).toBe(true);
+	});
+
+	it('after a save moves the task, the focus follows it to its new day (Manager)', async () => {
+		const { card, root, hass } = await mount({ view: 'calendar' });
+		const target = besideToday(root);
+		const chip = chipOf(root, 'Empty the dishwasher');
+		chip.focus();
+		chip.click();
+		await settle(card);
+		expect(root.activeElement).toBe(root.querySelector('.scrim form'));
+		const date = root.querySelector('.scrim input[type="date"]') as HTMLInputElement;
+		date.value = target.dataset.day!;
+		date.dispatchEvent(new Event('input'));
+		await settle(card);
+		root.querySelector('.scrim form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+		await settle(card);
+		expect(writes(hass).map((w) => w.task_id)).toEqual(['b1']);
+		const focused = root.activeElement as HTMLElement;
+		expect(focused.classList.contains('ctask')).toBe(true);
+		expect(focused.dataset.task).toBe('b1');
+		expect(focused.closest('.cday')!.getAttribute('data-day')).toBe(target.dataset.day);
+	});
+
+	it('a dialog opened by a tap that gave no focus leaves the focus alone on close', async () => {
+		const { card, root } = await mount({ view: 'list', lists: ['chores'] });
+		(row(root, 'Mow the lawn').querySelector('.what') as HTMLElement).click();
+		await settle(card);
+		(root.querySelector('.scrim .btn:not(.danger):not(.primary)') as HTMLElement).click();
+		await settle(card);
+		expect(root.querySelector('.scrim')).toBeNull();
+		expect(root.activeElement).toBeNull();
+	});
+
+	it('shopping list: what Clear is taking away stays ticked while it goes (Manager)', async () => {
+		const hass = household(TODAY);
+		// Deletes that never answer: what the card shows while they are on their way.
+		const answer = hass.callWS.bind(hass);
+		hass.callWS = (<T,>(message: Record<string, unknown>): Promise<T> => {
+			if (message.type === 'pecklist/task/delete') {
+				hass.calls.push(message);
+				return new Promise<T>(() => {});
+			}
+			return answer<T>(message);
+		}) as typeof hass.callWS;
+		const { card, root } = await mount({ view: 'shopping', lists: ['chores'] }, hass);
+		(root.querySelector('.clear') as HTMLElement).click();
+		await settle(card);
+		expect(writes(hass)).toEqual([{ type: 'pecklist/task/delete', entry_id: 'ben', task_id: 'b8' }]);
+		const plants = row(root, 'Water the plants');
+		expect(plants.classList.contains('leaving')).toBe(true);
+		const check = plants.querySelector('.check') as HTMLButtonElement;
+		expect([check.getAttribute('aria-checked'), check.disabled]).toEqual(['true', true]);
+		// Other rows carry on as usual.
+		expect(row(root, 'Rake leaves').classList.contains('leaving')).toBe(false);
+		// Nothing is left to clear meanwhile, so the button goes; ticking one more offers just that one.
+		expect(root.querySelector('.clear')).toBeNull();
+		(row(root, 'Rake leaves').querySelector('.check') as HTMLElement).click();
+		await settle(card);
+		expect(text(root, '.clear')).toEqual(['Clear 1']);
+	});
+
+	it('after closing, moving on to another row keeps the focus there through the redraw (Dev 1)', async () => {
+		const { card, root, hass } = await mount({ view: 'list', lists: ['chores'] });
+		const what = (title: string) => row(root, title).querySelector('.what') as HTMLElement;
+		what('Mow the lawn').focus();
+		what('Mow the lawn').click();
+		await settle(card);
+		root.querySelector('.scrim form')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		await settle(card);
+		expect((root.activeElement as HTMLElement).dataset.task).toBe('b2');
+		// Within the hold, the person moves on; then a snapshot redraws the card.
+		what('Rake leaves').focus();
+		hass.push();
+		await settle(card);
+		expect((root.activeElement as HTMLElement).dataset.task).toBe('b10');
+	});
+
+	it('when the list re-sorts under a restored focus, the focus follows the task, not the row it was in', async () => {
+		const { card, root, hass } = await mount({ view: 'list', lists: ['chores'] });
+		const what = (title: string) => row(root, title).querySelector('.what') as HTMLElement;
+		what('Mow the lawn').focus();
+		what('Mow the lawn').click();
+		await settle(card);
+		root.querySelector('.scrim form')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		await settle(card);
+		const restored = root.activeElement as HTMLElement;
+		expect(restored.dataset.task).toBe('b2');
+		// Then the server's answer (or another device) re-sorts the list: lit draws another task into
+		// the focused row, and the focus goes on to the task's own row.
+		hass.people[0]!.tasks.find((t) => t.id === 'b2')!.schedule = { start: addDays(TODAY, 300), end: null, allDay: true };
+		hass.push();
+		await settle(card);
+		const focused = root.activeElement as HTMLElement;
+		expect(focused.dataset.task).toBe('b2');
+		expect(focused.textContent).toContain('Mow the lawn');
 	});
 });
