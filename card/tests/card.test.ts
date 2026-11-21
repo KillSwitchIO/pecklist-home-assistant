@@ -771,6 +771,11 @@ describe('the card', () => {
 		expect([check.getAttribute('aria-checked'), check.disabled]).toEqual(['true', true]);
 		// Other rows carry on as usual.
 		expect(row(root, 'Rake leaves').classList.contains('leaving')).toBe(false);
+		// Nothing is left to clear meanwhile, so the button goes; ticking one more offers just that one.
+		expect(root.querySelector('.clear')).toBeNull();
+		(row(root, 'Rake leaves').querySelector('.check') as HTMLElement).click();
+		await settle(card);
+		expect(text(root, '.clear')).toEqual(['Clear 1']);
 	});
 
 	it('after closing, moving on to another row keeps the focus there through the redraw (Dev 1)', async () => {

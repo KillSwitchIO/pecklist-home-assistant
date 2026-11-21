@@ -1159,7 +1159,7 @@ var et=globalThis,st=et.ShadowRoot&&(et.ShadyCSS===void 0||et.ShadyCSS.nativeSha
 								${i.map(a=>this._renderRow({item:a,subtasks:[]},!1,!0,!1))}
 							</ul>`:h`<div class="none-today">Nothing open.</div>`}
 				</section>`})}
-		</div>`}_renderShopping(t,e){let s=K(t,{...this._config,show_completed:!0,sort:this._config.sort??"manual"},e),i=s.filter(o=>o.open),a=s.filter(o=>!o.open),l=a.filter(o=>o.canWrite);return h`
+		</div>`}_renderShopping(t,e){let s=K(t,{...this._config,show_completed:!0,sort:this._config.sort??"manual"},e),i=s.filter(o=>o.open),a=s.filter(o=>!o.open),l=a.filter(o=>o.canWrite&&!this._leaving.has(o.task.id));return h`
 			${i.length?this._renderList(i,t):h`<div class="empty">${a.length?"Everything is ticked off.":"Nothing on the list."}</div>`}
 			${a.length?h`<h3 class="got">
 							Done

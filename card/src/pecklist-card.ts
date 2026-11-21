@@ -747,7 +747,8 @@ export class PeckListCard extends LitElement {
 		const all = collect(snapshots, { ...this._config, show_completed: true, sort: this._config.sort ?? 'manual' }, person);
 		const left = all.filter((item) => item.open);
 		const got = all.filter((item) => !item.open);
-		const clearable = got.filter((item) => item.canWrite);
+		// Not again what Clear is already taking away.
+		const clearable = got.filter((item) => item.canWrite && !this._leaving.has(item.task.id));
 		return html`
 			${left.length ? this._renderList(left, snapshots) : html`<div class="empty">${got.length ? 'Everything is ticked off.' : 'Nothing on the list.'}</div>`}
 			${got.length
