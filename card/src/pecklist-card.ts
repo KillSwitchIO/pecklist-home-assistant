@@ -1211,8 +1211,14 @@ export class PeckListCard extends LitElement {
 	protected updated(): void {
 		const id = this._focusTask;
 		if (!id) return;
+		// Only while the person is still in the calendar: not over a dialog, nor once they went elsewhere.
+		const active = (this.renderRoot as ShadowRoot).activeElement;
+		if (this._draft || (active && !active.closest('.cal'))) {
+			this._focusTask = null;
+			return;
+		}
 		const chip = [...this.renderRoot.querySelectorAll<HTMLElement>('.ctask')].find((each) => each.dataset.task === id);
-		if (chip && (this.renderRoot as ShadowRoot).activeElement !== chip) chip.focus();
+		if (chip && active !== chip) chip.focus();
 		if (!this._moves.has(id)) this._focusTask = null;
 	}
 

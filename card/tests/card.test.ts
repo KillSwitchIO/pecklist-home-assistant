@@ -663,5 +663,14 @@ describe('the card', () => {
 		alt('ArrowRight');
 		await settle(card);
 		expect(writes(hass).map((w) => w.task_id)).toEqual(['b2', 'b2']);
+
+		// Opening the task straight after a move: the dialog keeps the focus (Dev 1).
+		alt('ArrowRight');
+		(root.activeElement as HTMLElement).click();
+		await card.updateComplete;
+		const title = root.querySelector('.scrim input') as HTMLInputElement;
+		title.focus();
+		await settle(card);
+		expect(root.activeElement).toBe(title);
 	});
 });
