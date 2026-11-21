@@ -4,6 +4,7 @@ import {
 	addMonths,
 	agenda,
 	byList,
+	calendar,
 	collect,
 	dateChange,
 	firstWeekday,
@@ -203,6 +204,30 @@ describe('views', () => {
 		expect([0, 1, 2, 3, 4, 5, 6, 40].map(heatLevel)).toEqual([0, 1, 2, 2, 3, 3, 4, 4]);
 	});
 
+	it('calendar: whole weeks around the month, each day with its tasks', () => {
+		const weeks = calendar(items, 'month', TODAY, 0);
+		expect(weeks).toHaveLength(5);
+		expect(weeks[0]![0]).toMatchObject({ day: '2026-11-01', inRange: true });
+		expect(weeks.at(-1)!.at(-1)).toMatchObject({ day: '2026-12-05', inRange: false });
+		expect(titles(weeks.flat().find((d) => d.day === '2026-11-14')!.items)).toEqual([
+			'Pay the water bill',
+			'Mow the lawn',
+			'Rake leaves',
+			'Replace furnace filter',
+		]);
+	});
+
+	it('calendar: a week starts on the chosen weekday, and a dragged task shows on its new day', () => {
+		const sunday = calendar(items, 'week', TODAY, 0);
+		expect(sunday).toHaveLength(1);
+		expect(sunday[0]!.map((d) => d.day)).toEqual(['2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14']);
+		expect(sunday[0]!.every((d) => d.inRange)).toBe(true);
+		expect(calendar(items, 'week', TODAY, 1)[0]![0]!.day).toBe('2026-11-09');
+		const moved = calendar(items, 'week', TODAY, 0, new Map([['b1', '2026-11-13']]))[0]!;
+		expect(titles(moved[4]!.items)).not.toContain('Empty the dishwasher');
+		expect(titles(moved[5]!.items)).toContain('Empty the dishwasher');
+	});
+
 	it('heatmap: a year is 53 or 54 weeks', () => {
 		const weeks = heatmap(items, 'year', TODAY, 0);
 		expect(weeks.length).toBeGreaterThanOrEqual(53);
@@ -217,6 +242,11 @@ describe('the editor', () => {
 		expect(names(card())).toContain('max_items');
 		expect(names(card({ view: 'heatmap' }))).toContain('range');
 		expect(names(card({ view: 'heatmap' }))).not.toContain('days');
+		const range = (view: CardConfig['view']) =>
+			(schema(card({ view }), [], [], []).find((f) => f.name === 'range') as { selector: { select: { options: { value: string }[] } } })
+				.selector.select.options.map((o) => o.value);
+		expect(range('heatmap')).toEqual(['month', 'year']);
+		expect(range('calendar')).toEqual(['month', 'week']);
 		expect(names(card({ view: 'agenda' }))).toContain('days');
 		// People are a choice only when there is more than one; tags only when there are any.
 		expect(names(card())).not.toContain('entries');

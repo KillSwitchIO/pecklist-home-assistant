@@ -35,6 +35,8 @@ const cards: Partial<CardConfig>[] = [
 	{ view: 'board', title: 'Family board', entries: ['ben', 'sam'], density: 'compact', days: 7 },
 	{ view: 'shopping', title: 'Shopping list', lists: ['household'], quick_add: true },
 	{ view: 'tiles', entries: ['ben', 'sam'] },
+	{ view: 'calendar', title: 'Calendar', entries: ['ben', 'sam'] },
+	{ view: 'calendar', title: 'This week', range: 'week' },
 ];
 const only = params.get('only');
 const main = document.getElementById('cards')!;

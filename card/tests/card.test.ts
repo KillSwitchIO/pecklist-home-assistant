@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { todayIn } from '../src/data';
+import { addDays, todayIn } from '../src/data';
 import { PeckListCard } from '../src/pecklist-card';
 import type { CardConfig } from '../src/types';
 import { type FakeHass, household } from './fake-hass';
@@ -29,6 +29,21 @@ const row = (root: ShadowRoot, title: string) => [...root.querySelectorAll('.row
 afterEach(() => {
 	document.body.replaceChildren();
 });
+
+function pointer(type: string, target: Element, x: number, y: number, pointerType = 'mouse'): void {
+	target.dispatchEvent(new PointerEvent(type, { bubbles: true, composed: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType, button: 0 }));
+}
+const chipOf = (root: ShadowRoot, title: string) => [...root.querySelectorAll('.ctask')].find((c) => c.textContent!.includes(title)) as HTMLElement;
+/** Where the browser would find the pointer: the test says which calendar day it is over. */
+function over(root: ShadowRoot, cell: () => Element | null): void {
+	(root as unknown as { elementFromPoint: () => Element | null }).elementFromPoint = cell;
+}
+/** A calendar day next to today, in the same grid. */
+function besideToday(root: ShadowRoot): HTMLElement {
+	const cells = [...root.querySelectorAll('.cday')] as HTMLElement[];
+	const at = cells.findIndex((c) => c.dataset.day === TODAY);
+	return cells[at === cells.length - 1 ? at - 1 : at + 1]!;
+}
 
 describe('the card', () => {
 	it('registers itself for the card picker', () => {
@@ -354,5 +369,200 @@ describe('the card', () => {
 		(root.querySelector('.tile') as HTMLElement).click();
 		expect(went).toHaveBeenCalledOnce();
 		expect(location.pathname).toBe('/tasks/home');
+	});
+
+	it('moves a task to another list from the dialog, its subtasks with it', async () => {
+		const { card, root, hass } = await mount({ view: 'list', lists: ['household', 'chores'] });
+		(row(root, 'Groceries').querySelector('.what') as HTMLElement).click();
+		await settle(card);
+		const select = root.querySelector('.scrim select') as HTMLSelectElement;
+		// happy-dom gets an option's selectedness wrong; browsers follow the attribute.
+		expect([...select.options].map((o) => [o.textContent!.trim(), o.hasAttribute('selected')])).toEqual([
+			['Inbox', false],
+			['Chores', false],
+			['Flying', false],
+			['Household', true],
+		]);
+		select.value = 'chores';
+		select.dispatchEvent(new Event('change'));
+		await settle(card);
+		root.querySelector('.scrim form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+		await settle(card);
+		expect(writes(hass)).toEqual([{ type: 'pecklist/task/update', entry_id: 'ben', task_id: 'h3', changes: { listId: 'chores' } }]);
+		const chores = [...root.querySelectorAll('.groups section')].filter((g) => g.querySelector('h3')!.textContent!.trim() === 'Chores');
+		expect(chores.flatMap((g) => text(g, '.name'))).toEqual(['Groceries', 'Coffee beans', 'Milk']);
+		// A subtask moves with its parent, not on its own.
+		(row(root, 'Milk').querySelector('.what') as HTMLElement).click();
+		await settle(card);
+		expect(root.querySelector('.scrim')).not.toBeNull();
+		expect(root.querySelector('.scrim select')).toBeNull();
+		expect(root.querySelector('.scrim .subs')).toBeNull();
+	});
+
+	it('subtasks: check off, rename, delete and add them without leaving the dialog', async () => {
+		const { card, root, hass } = await mount({ view: 'list', lists: ['household'] });
+		(row(root, 'Groceries').querySelector('.what') as HTMLElement).click();
+		await settle(card);
+		const titles = () => ([...root.querySelectorAll('.subs input')] as HTMLInputElement[]).map((i) => [i.value, i.classList.contains('closed')]);
+		const subtask = (title: string) => [...root.querySelectorAll('.subs li')].find((li) => (li.querySelector('input') as HTMLInputElement).value === title)!;
+		expect(titles()).toEqual([
+			['Milk', false],
+			['Coffee beans', false],
+		]);
+		(subtask('Milk').querySelector('.check') as HTMLElement).click();
+		await settle(card);
+		expect(titles()).toEqual([
+			['Coffee beans', false],
+			['Milk', true],
+		]);
+		const rename = subtask('Coffee beans').querySelector('input') as HTMLInputElement;
+		rename.value = 'Decaf beans';
+		rename.dispatchEvent(new Event('change'));
+		await settle(card);
+		(subtask('Milk').querySelector('.remove') as HTMLElement).click();
+		await settle(card);
+		const add = root.querySelector('.sub-add') as HTMLInputElement;
+		add.value = 'Bread';
+		const enter = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+		add.dispatchEvent(enter);
+		await settle(card);
+		expect(enter.defaultPrevented).toBe(true);
+		expect(add.value).toBe('');
+		expect(root.querySelector('.scrim')).not.toBeNull();
+		expect(titles()).toEqual([
+			['Decaf beans', false],
+			['Bread', false],
+		]);
+		expect(writes(hass)).toEqual([
+			{ type: 'pecklist/task/complete', entry_id: 'ben', task_id: 'h3a' },
+			{ type: 'pecklist/task/update', entry_id: 'ben', task_id: 'h3b', changes: { title: 'Decaf beans' } },
+			{ type: 'pecklist/task/delete', entry_id: 'ben', task_id: 'h3a' },
+			{ type: 'pecklist/task/create', entry_id: 'ben', task: { title: 'Bread', parentId: 'h3', listId: 'household' } },
+		]);
+		// Nothing about the task itself changed: Save just closes.
+		root.querySelector('.scrim form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+		await settle(card);
+		expect(writes(hass)).toHaveLength(4);
+		expect(root.querySelector('.scrim')).toBeNull();
+	});
+
+	it('calendar: drag a task to another day to move it there, at the same time', async () => {
+		const { card, root, hass } = await mount({ view: 'calendar' });
+		expect(card.getGridOptions().rows).toBe(8);
+		expect(root.querySelectorAll('.cday').length % 7).toBe(0);
+		expect(root.querySelectorAll('.cday').length).toBeGreaterThanOrEqual(28);
+		const today = root.querySelector('.cday.today') as HTMLElement;
+		expect(today.dataset.day).toBe(TODAY);
+		expect(text(today, '.ctask')).toEqual(['Take out the bins', 'Empty the dishwasher']);
+		const target = besideToday(root);
+		const day = target.dataset.day!;
+		const chip = chipOf(root, 'Empty the dishwasher');
+		over(root, () => target);
+		pointer('pointerdown', chip, 10, 10);
+		pointer('pointermove', chip, 12, 11);
+		await settle(card);
+		// Not yet: a mouse has to move a little before a press is a drag.
+		expect(chip.classList.contains('lifted')).toBe(false);
+		pointer('pointermove', chip, 60, 10);
+		await settle(card);
+		expect(chip.classList.contains('lifted')).toBe(true);
+		expect(target.classList.contains('drop')).toBe(true);
+		pointer('pointerup', chip, 60, 10);
+		chip.click();
+		await settle(card);
+		// The click after a drag does not open the task.
+		expect(root.querySelector('.scrim')).toBeNull();
+		expect(writes(hass)).toEqual([
+			{ type: 'pecklist/task/update', entry_id: 'ben', task_id: 'b1', changes: { schedule: { start: `${day}T18:00`, end: null, allDay: false } } },
+		]);
+		const moved = root.querySelector(`.cday[data-day="${day}"]`)!;
+		expect(text(moved, '.ctask')).toContain('Empty the dishwasher');
+		expect(text(root.querySelector('.cday.today')!, '.ctask')).toEqual(['Take out the bins']);
+		expect(root.querySelector('.drop, .lifted')).toBeNull();
+	});
+
+	it('calendar: a tap opens the task, a drop on its own day changes nothing, and a read-only task stays put', async () => {
+		const hass = household(TODAY);
+		hass.people[0]!.lists.find((l) => l.id === 'household')!.role = 'viewer';
+		const { card, root } = await mount({ view: 'calendar' }, hass);
+		const today = root.querySelector('.cday.today') as HTMLElement;
+		over(root, () => today);
+		const dishwasher = chipOf(root, 'Empty the dishwasher');
+		pointer('pointerdown', dishwasher, 10, 10);
+		pointer('pointermove', dishwasher, 40, 30);
+		pointer('pointerup', dishwasher, 40, 30);
+		dishwasher.click();
+		await settle(card);
+		expect(writes(hass)).toEqual([]);
+		expect(root.querySelector('.scrim')).toBeNull();
+		pointer('pointerdown', dishwasher, 10, 10);
+		pointer('pointerup', dishwasher, 10, 10);
+		dishwasher.click();
+		await settle(card);
+		expect((root.querySelector('.scrim input') as HTMLInputElement).value).toBe('Empty the dishwasher');
+		(root.querySelector('.scrim .btn:not(.danger):not(.primary)') as HTMLElement).click();
+		await settle(card);
+		const target = besideToday(root);
+		over(root, () => target);
+		const bins = chipOf(root, 'Take out the bins');
+		pointer('pointerdown', bins, 10, 10);
+		pointer('pointermove', bins, 60, 10);
+		await settle(card);
+		expect(bins.classList.contains('lifted')).toBe(false);
+		pointer('pointerup', bins, 60, 10);
+		bins.click();
+		await settle(card);
+		expect(writes(hass)).toEqual([]);
+		// A task you may only view: a tap shows its day instead.
+		expect(root.querySelector('.scrim')).toBeNull();
+		expect(root.querySelector('.cday.today')!.getAttribute('aria-current')).toBe('date');
+	});
+
+	it('calendar: a finger holds a task to lift it; moving sooner scrolls', async () => {
+		const { card, root, hass } = await mount({ view: 'calendar' });
+		const target = besideToday(root);
+		over(root, () => target);
+		const chip = chipOf(root, 'Empty the dishwasher');
+		pointer('pointerdown', chip, 10, 10, 'touch');
+		pointer('pointermove', chip, 10, 40, 'touch');
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		await settle(card);
+		expect(chip.classList.contains('lifted')).toBe(false);
+		pointer('pointerup', chip, 10, 40, 'touch');
+		expect(writes(hass)).toEqual([]);
+
+		pointer('pointerdown', chip, 10, 10, 'touch');
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		await settle(card);
+		expect(chip.classList.contains('lifted')).toBe(true);
+		const scroll = new Event('touchmove', { cancelable: true });
+		chip.dispatchEvent(scroll);
+		expect(scroll.defaultPrevented).toBe(true);
+		pointer('pointermove', chip, 60, 10, 'touch');
+		pointer('pointerup', chip, 60, 10, 'touch');
+		await settle(card);
+		expect(writes(hass).map((w) => w.task_id)).toEqual(['b1']);
+	});
+
+	it('calendar: a week of days, a week at a time, with times', async () => {
+		const { card, root, hass } = await mount({ view: 'calendar', range: 'week' });
+		const days = () => ([...root.querySelectorAll('.cday')] as HTMLElement[]).map((c) => c.dataset.day!);
+		expect(days()).toHaveLength(7);
+		expect(days()).toContain(TODAY);
+		expect(root.querySelector('.cday.out')).toBeNull();
+		expect(text(chipOf(root, 'Empty the dishwasher'), 'b')).toEqual(['6:00 PM']);
+		// From the keyboard: Alt and an arrow move it a day.
+		chipOf(root, 'Empty the dishwasher').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true, cancelable: true }));
+		await settle(card);
+		expect((writes(hass)[0] as { changes: unknown }).changes).toEqual({ schedule: { start: `${addDays(TODAY, 1)}T18:00`, end: null, allDay: false } });
+		const first = days()[0]!;
+		(root.querySelector('.nav [aria-label="Later"]') as HTMLElement).click();
+		await settle(card);
+		expect(days()[0]).toBe(addDays(first, 7));
+		const [month] = [...root.querySelectorAll('.seg button')] as HTMLElement[];
+		month!.click();
+		await settle(card);
+		expect(days().length).toBeGreaterThanOrEqual(28);
+		expect(month!.getAttribute('aria-pressed')).toBe('true');
 	});
 });

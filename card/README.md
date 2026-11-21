@@ -1,8 +1,9 @@
 # The PeckList dashboard card
 
 A dashboard card for [PeckList](https://pecklist.com) tasks: what is due at a glance, whole lists
-with sections and subtasks, an agenda for the week, and a heatmap of busy days. Check tasks off,
-add them with PeckList's quick add, and edit them, without leaving the dashboard.
+with sections and subtasks, an agenda for the week, a calendar, and a heatmap of busy days. Check
+tasks off, add them with PeckList's quick add, edit them, and drag them to another day, without
+leaving the dashboard.
 
 ![The card on a Home Assistant dashboard](docs/screenshots/dashboard.jpg)
 
@@ -19,6 +20,7 @@ integration, and the card is there. Reload the browser, edit a dashboard, **Add 
 | **At a glance** | Counts for overdue, today and upcoming, and the next few tasks. Tap a count to see those tasks. |
 | **List** | One or more lists, grouped by section, with subtasks under their parent. |
 | **Agenda** | What is overdue, then today and the days ahead. |
+| **Calendar** | A month, or a week, with each day's tasks. Drag a task to another day to move it there, at the same time of day; on a touch screen, hold it a moment first; from the keyboard, Alt and an arrow key. Tap a task to edit it, or a day to list it. **Month** and **Week** switch between the two. |
 | **Busy-day heatmap** | A month, or a year of small months, shaded by how many tasks fall on each day. Tap a day to see its tasks. |
 | **Week strip** | Today and the six days after it in one row, a dot per open task in its person's color. Tap a day to list it; today also lists what is overdue. |
 | **Next up** | The one task to do next, large, with **Done** and **Tomorrow**. Made for a wall tablet or a small cell. |
@@ -35,8 +37,10 @@ integration, and the card is there. Reload the browser, edit a dashboard, **Add 
 In every view:
 
 - tap the circle to complete a task, and again to reopen it. The circle's color is the priority;
-- tap a task to change its title, date, time, priority, tags and notes, to assign it (in a shared
-  list), or to delete it;
+- tap a task to change its title, date, time, priority, tags and notes, to move it to another list
+  (its subtasks go with it), to assign it (in a shared list), or to delete it;
+- the same dialog lists the task's subtasks: check them off, rename them, delete them, or type a
+  new one and press Enter. These changes save straight away;
 - a task assigned to someone who is not on the card says so: `@Sam`;
 - with **Show the add box**, type a line the way you would in PeckList:
   `Pay rent tomorrow 9am #bills !high`.
@@ -100,7 +104,7 @@ quick_add: true
 
 | Option | Default | |
 | --- | --- | --- |
-| `view` | `glance` | `glance`, `list`, `agenda`, `heatmap`, `week`, `next`, `board`, `shopping` or `tiles` |
+| `view` | `glance` | `glance`, `list`, `agenda`, `heatmap`, `calendar`, `week`, `next`, `board`, `shopping` or `tiles` |
 | `title` | none | A heading for the card |
 | `entries` | signed-in person, else everyone | Which people |
 | `scope` | `all` | `all`, `own` or `assigned` |
@@ -115,7 +119,7 @@ quick_add: true
 | `kiosk` | `false` | Wall tablet layout |
 | `max_items` | `5` | At a glance: how many tasks to list |
 | `days` | `7` | At a glance and agenda: how far ahead to look |
-| `range` | `month` | Heatmap: `month` or `year` |
+| `range` | `month` | Heatmap: `month` or `year`. Calendar: `month` or `week` |
 | `height` | grows to fit | A fixed height in pixels; the tasks scroll |
 | `navigation_path` | none | Person tiles: where a tap goes, such as `/dashboard-tablet/tasks` |
 
@@ -134,7 +138,7 @@ For a small cell, such as the space under other tiles in a section, use `density
 - the add box folds behind a **+** button until you want it;
 - in a narrow cell the list names give way to the task titles.
 
-Person tiles take one row, next up two or three, and a week strip four. About five rows of a
+Person tiles take one row, next up two or three, a week strip four, and a calendar eight. About five rows of a
 compact agenda show seven tasks. A card given a whole screen, across two or three sections, lays
 its groups out side by side instead of in one long column.
 

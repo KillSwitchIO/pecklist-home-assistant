@@ -5,6 +5,12 @@ matches `custom_components/pecklist/manifest.json`; the GitHub mirror publishes 
 
 ## Unreleased
 
+- The card has a **Calendar** view: a month, or a week, with each day's tasks. Drag a task to
+  another day to move it there, keeping its time; on a touch screen, hold it a moment first. Tap a
+  task to edit it, or a day to list it.
+- The card's edit dialog can move a task to another list (its subtasks go with it), and lists the
+  task's subtasks: check them off, rename them, delete them, and add new ones.
+
 ## 0.2.1 - 2026-11-19
 
 - Time zones named on tasks are loaded off the event loop. Loading a zone for the first time reads
