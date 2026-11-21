@@ -917,6 +917,7 @@ export const styles = css`
 		color: var(--pl-text);
 		font-size: 14px;
 		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+		container: dialog / inline-size;
 	}
 	label {
 		display: flex;
@@ -946,8 +947,18 @@ export const styles = css`
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 		gap: 10px;
 	}
-	.two input {
+	.scrim input,
+	.scrim select,
+	.scrim textarea {
+		box-sizing: border-box;
+		width: 100%;
 		min-width: 0;
+	}
+	/* A phone's native date and time controls will not shrink: one under the other there. */
+	@container dialog (max-width: 400px) {
+		.two {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
 	.prio {
 		display: grid;
