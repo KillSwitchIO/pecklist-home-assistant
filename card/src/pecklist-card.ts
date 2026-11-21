@@ -1287,6 +1287,7 @@ export class PeckListCard extends LitElement {
 		if (inside?.closest('.scrim')) inside.blur();
 		this._draft = null;
 		this._opener = null;
+		this._placed = null;
 		// Opened without a focus (a tap where buttons take none): nothing to give back.
 		if (!draft || !opener) return;
 		const id = draft.item.task.id;
