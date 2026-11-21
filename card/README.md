@@ -20,7 +20,7 @@ integration, and the card is there. Reload the browser, edit a dashboard, **Add 
 | **At a glance** | Counts for overdue, today and upcoming, and the next few tasks. Tap a count to see those tasks. |
 | **List** | One or more lists, grouped by section, with subtasks under their parent. |
 | **Agenda** | What is overdue, then today and the days ahead. |
-| **Calendar** | A month, or a week, with each day's tasks. Drag a task to another day to move it there, at the same time of day; on a touch screen, hold it a moment first; from the keyboard, Alt and an arrow key. Tap a task to edit it, or a day to list it. **Month** and **Week** switch between the two. |
+| **Calendar** | A month, or a week, with each day's tasks. Drag a task to another day to move it there, at the same time of day; on a touch screen, hold it a moment first; from the keyboard, Alt and an arrow key. Tap a task to edit it, or a day to list it. **Month** and **Week** switch between the two. With `undated_tray` on, tasks without a date wait in a tray beside the calendar (under it on a narrow card): drag one onto a day to give it that date. The tray button on the card hides or shows the tray, remembered in that browser. |
 | **Busy-day heatmap** | A month, or a year of small months, shaded by how many tasks fall on each day. Tap a day to see its tasks. |
 | **Week strip** | Today and the six days after it in one row, a dot per open task in its person's color. Tap a day to list it; today also lists what is overdue. |
 | **Next up** | The one task to do next, large, with **Done** and **Tomorrow**. Made for a wall tablet or a small cell. |
@@ -120,6 +120,7 @@ quick_add: true
 | `max_items` | `5` | At a glance: how many tasks to list |
 | `days` | `7` | At a glance and agenda: how far ahead to look |
 | `range` | `month` | Heatmap: `month` or `year`. Calendar: `month` or `week` |
+| `undated_tray` | `false` | Calendar: a tray of tasks without a date, to drag onto a day. Off: no tray and no button for it |
 | `height` | grows to fit | A fixed height in pixels; the tasks scroll |
 | `navigation_path` | none | Person tiles: where a tap goes, such as `/dashboard-tablet/tasks` |
 

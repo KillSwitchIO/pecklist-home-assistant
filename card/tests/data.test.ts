@@ -247,6 +247,9 @@ describe('the editor', () => {
 				.selector.select.options.map((o) => o.value);
 		expect(range('heatmap')).toEqual(['month', 'year']);
 		expect(range('calendar')).toEqual(['month', 'week']);
+		// The undated tray is a calendar setting only.
+		expect(names(card({ view: 'calendar' }))).toContain('undated_tray');
+		expect(names(card({ view: 'list' }))).not.toContain('undated_tray');
 		expect(names(card({ view: 'agenda' }))).toContain('days');
 		// People are a choice only when there is more than one; tags only when there are any.
 		expect(names(card())).not.toContain('entries');

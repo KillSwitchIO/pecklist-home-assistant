@@ -120,6 +120,11 @@ export interface CardConfig {
 	days?: number;
 	/** Heatmap: a month or a year. Calendar: a month or a week. */
 	range?: 'month' | 'year' | 'week';
+	/**
+	 * Calendar: a tray of undated tasks beside it, to drag onto a day. A button on the card hides or
+	 * shows it, remembered per browser. Off: no tray and no button.
+	 */
+	undated_tray?: boolean;
 	/** Body height in pixels; 0 grows with its content. */
 	height?: number;
 	/** Person tiles: where a tap goes, such as /lovelace/tasks. */

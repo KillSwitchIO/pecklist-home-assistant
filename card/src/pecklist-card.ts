@@ -31,6 +31,17 @@ import './editor';
 import { icons, styles } from './styles';
 import type { Accounts, CardConfig, HomeAssistant, Item, List, PersonRef, Snapshot, Task } from './types';
 
+/** Where a browser remembers that the undated tray was hidden on its dashboards. */
+export const TRAY_KEY = 'pecklist-card:undated-tray';
+
+function readTrayShown(): boolean {
+	try {
+		return localStorage.getItem(TRAY_KEY) !== '0';
+	} catch {
+		return true;
+	}
+}
+
 const PRIORITIES = ['None', 'Low', 'Medium', 'High'];
 
 /** How long a finger rests on a task before it lifts to be dragged. Moving sooner is a scroll. */
@@ -100,6 +111,7 @@ export class PeckListCard extends LitElement {
 		_moves: { state: true },
 		_dragId: { state: true },
 		_dropDay: { state: true },
+		_trayShown: { state: true },
 	};
 
 	declare _config: CardConfig;
@@ -124,6 +136,8 @@ export class PeckListCard extends LitElement {
 	declare _moves: Map<string, string>;
 	declare _dragId: string | null;
 	declare _dropDay: string | null;
+	/** The undated tray on the dashboard: shown unless hidden in this browser (TRAY_KEY). */
+	declare _trayShown: boolean;
 
 	private _hass?: HomeAssistant;
 	private _drag: Drag | null = null;
@@ -166,6 +180,7 @@ export class PeckListCard extends LitElement {
 		this._moves = new Map();
 		this._dragId = null;
 		this._dropDay = null;
+		this._trayShown = readTrayShown();
 	}
 
 	// Home Assistant's card interface
@@ -1073,7 +1088,7 @@ export class PeckListCard extends LitElement {
 					)
 				: formatDay(anchor.slice(0, 7) + '-01', language, { month: 'long', year: 'numeric' });
 		const most = range === 'week' ? 8 : 3;
-		const chip = (item: Item, day: string) => {
+		const chip = (item: Item, day: string | null) => {
 			const { task } = item;
 			const time = item.time ? formatTime(item.time, language) : '';
 			const movable = item.canWrite && item.open;
@@ -1086,18 +1101,22 @@ export class PeckListCard extends LitElement {
 				@pointerdown=${(e: PointerEvent) => this._grab(e, item)}
 				@touchmove=${this._touchMove}
 				@contextmenu=${(e: Event) => movable && e.preventDefault()}
-				@keydown=${(e: KeyboardEvent) => this._nudge(e, item, day)}
+				@keydown=${(e: KeyboardEvent) => day && this._nudge(e, item, day)}
 				@click=${(e: Event) => {
 					e.stopPropagation();
 					if (this._swallowClick) return;
 					if (item.canWrite) this._edit(item);
-					else this._selected = day;
+					else if (day) this._selected = day;
 				}}
 			>
 				${range === 'week' && time ? html`<b>${time}</b>` : nothing}<span>${task.title}</span>
 			</button>`;
 		};
 		const shown = days.find((d) => d.day === selected)?.items ?? items.filter((item) => (this._moves.get(item.task.id) ?? item.day) === selected);
+		const trayOn = !!this._config.undated_tray;
+		const tray = trayOn && this._trayShown;
+		// Open tasks without a date, not subtasks (they go with their parent), and not one just dropped on a day.
+		const undated = tray ? items.filter((item) => item.open && !item.day && !item.task.parentId && !this._moves.has(item.task.id)) : [];
 		return html`
 			<div class="nav">
 				<strong>${label}</strong>
@@ -1105,10 +1124,16 @@ export class PeckListCard extends LitElement {
 					<button aria-pressed=${range === 'month'} @click=${() => (this._range = 'month')}>Month</button>
 					<button aria-pressed=${range === 'week'} @click=${() => (this._range = 'week')}>Week</button>
 				</div>
+				${trayOn
+					? html`<button class="tray-toggle" aria-label="Undated tasks" title="Undated tasks" aria-pressed=${tray} @click=${this._toggleTray}>
+							${icon(icons.tray)}
+						</button>`
+					: nothing}
 				<button aria-label="Today" title="Today" @click=${() => ((this._anchor = null), (this._selected = null))}>${icon(icons.today)}</button>
 				<button aria-label="Earlier" @click=${() => step(-1)}>${icon(icons.left)}</button>
 				<button aria-label="Later" @click=${() => step(1)}>${icon(icons.right)}</button>
 			</div>
+			<div class="calwrap ${tray ? 'with-tray' : ''}">
 			<div
 				class="cal ${range}"
 				@keydown=${(e: KeyboardEvent) => e.key === 'Escape' && this._drag && this._endDrag()}
@@ -1137,6 +1162,21 @@ export class PeckListCard extends LitElement {
 						${d.items.length > most ? html`<span class="more">+${d.items.length - most + 1}</span>` : nothing}
 					</div>`,
 				)}
+			</div>
+			${tray
+				? html`<section class="tray" aria-label="Undated tasks" @keydown=${(e: KeyboardEvent) => e.key === 'Escape' && this._drag && this._endDrag()}>
+						<h4>Undated <span>${undated.length}</span></h4>
+						${undated.length
+							? html`<div class="tray-tasks">
+									${repeat(
+										undated,
+										(item) => item.task.id,
+										(item) => chip(item, null),
+									)}
+								</div>`
+							: html`<p class="tray-none">No undated tasks.</p>`}
+					</section>`
+				: nothing}
 			</div>
 			<h3>${relativeDay(selected, today, language)} · ${formatDay(selected, language, { month: 'short', day: 'numeric' })}</h3>
 			${shown.length
@@ -1182,13 +1222,13 @@ export class PeckListCard extends LitElement {
 			if (far < MOUSE_SLOP_PX) return;
 			this._lift(drag);
 		}
-		this._dropDay = this._dayAt(event.clientX, event.clientY) ?? this._dropDay;
+		this._dropDay = this._overTray(event.clientX, event.clientY) ? null : (this._dayAt(event.clientX, event.clientY) ?? this._dropDay);
 	};
 
 	private _onDragEnd = (event: PointerEvent): void => {
 		const drag = this._drag;
 		if (!drag || event.pointerId !== drag.pointer) return;
-		const day = drag.active ? (this._dayAt(event.clientX, event.clientY) ?? this._dropDay) : null;
+		const day = drag.active && !this._overTray(event.clientX, event.clientY) ? (this._dayAt(event.clientX, event.clientY) ?? this._dropDay) : null;
 		this._endDrag();
 		if (!drag.active) return; // a tap: the click that follows opens the task
 		// The click that follows a drag is not a tap.
@@ -1255,12 +1295,31 @@ export class PeckListCard extends LitElement {
 		if (!this._moves.has(id) && !this._focusHeld) this._focusTask = null;
 	}
 
+	/** The element under a point. */
+	private _hit(x: number, y: number): Element | null {
+		const root = this.renderRoot as ShadowRoot & { elementFromPoint?: (x: number, y: number) => Element | null };
+		return root.elementFromPoint?.(x, y) ?? null;
+	}
+
 	/** The calendar day under a point. */
 	private _dayAt(x: number, y: number): string | null {
-		const root = this.renderRoot as ShadowRoot & { elementFromPoint?: (x: number, y: number) => Element | null };
-		const hit = root.elementFromPoint?.(x, y) ?? null;
-		return (hit?.closest('[data-day]') as HTMLElement | null)?.dataset.day ?? null;
+		return (this._hit(x, y)?.closest('[data-day]') as HTMLElement | null)?.dataset.day ?? null;
 	}
+
+	/** Whether a point is over the undated tray: a drag let go there goes back where it was. */
+	private _overTray(x: number, y: number): boolean {
+		return !!this._hit(x, y)?.closest('.tray');
+	}
+
+	/** Show or hide the undated tray on this dashboard, remembered in this browser. */
+	private _toggleTray = (): void => {
+		this._trayShown = !this._trayShown;
+		try {
+			localStorage.setItem(TRAY_KEY, this._trayShown ? '1' : '0');
+		} catch {
+			// Storage refused (a private window): it lasts until the page reloads.
+		}
+	};
 
 	/** Move a task to another day, keeping its time of day. */
 	private async _moveTo(item: Item, day: string): Promise<void> {
