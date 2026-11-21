@@ -1213,7 +1213,9 @@ export class PeckListCard extends LitElement {
 		if (!id) return;
 		// Only while the person is still in the calendar: not over a dialog, nor once they went elsewhere.
 		const active = (this.renderRoot as ShadowRoot).activeElement;
-		if (this._draft || (active && !active.closest('.cal'))) {
+		// No focus in the card and none on the page is the move's own doing; focus anywhere else is theirs.
+		const elsewhere = active ? !active.closest('.cal') : !!document.activeElement && document.activeElement !== document.body;
+		if (this._draft || elsewhere) {
 			this._focusTask = null;
 			return;
 		}

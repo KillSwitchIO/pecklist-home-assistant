@@ -672,5 +672,16 @@ describe('the card', () => {
 		title.focus();
 		await settle(card);
 		expect(root.activeElement).toBe(title);
+		(root.querySelector('.scrim .btn:not(.danger):not(.primary)') as HTMLElement).click();
+		await settle(card);
+
+		// Or tabbing out of the card: the focus stays where it went.
+		chipOf(root, 'Mow the lawn').focus();
+		alt('ArrowLeft');
+		const outside = document.createElement('button');
+		document.body.append(outside);
+		outside.focus();
+		await settle(card);
+		expect(document.activeElement).toBe(outside);
 	});
 });
