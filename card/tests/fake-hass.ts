@@ -133,7 +133,20 @@ export class FakeHass implements HomeAssistant {
 		} else if (type === 'pecklist/task/reopen') {
 			answer = this.change(String(message.task_id), (t) => ((t.status = 'open'), (t.completedAt = null)));
 		} else if (type === 'pecklist/task/update') {
-			answer = this.change(String(message.task_id), (t) => Object.assign(t, message.changes));
+			const changes = { ...(message.changes as Partial<Task>) };
+			const moved = this.find(String(message.entry_id)).tasks.find((t) => t.id === message.task_id);
+			// As the server does: a task that changes list leaves its section and parent, and its subtasks go with it.
+			if (moved && changes.listId && changes.listId !== moved.listId) {
+				const children = who.tasks.filter((t) => t.parentId === moved.id).map((t) => t.id);
+				for (const id of children) this.change(id, (t) => (t.listId = changes.listId!));
+				Object.assign(changes, { sectionId: null, parentId: null });
+			}
+			answer = this.change(String(message.task_id), (t) => Object.assign(t, changes));
+		} else if (type === 'pecklist/task/create') {
+			const fields = message.task as Partial<Task> & { title: string };
+			const made = task(`new-${who.tasks.length}-${this.revision}`, fields.title, fields.listId ?? who.lists[0]!.id, { ...fields, createdAt: new Date().toISOString() });
+			for (const p of this.people) if (p.lists.some((l) => l.id === made.listId)) p.tasks.push({ ...made });
+			answer = made;
 		} else if (type === 'pecklist/task/delete') {
 			for (const p of this.people) p.tasks = p.tasks.filter((t) => t.id !== message.task_id);
 		} else if (type === 'pecklist/task/quick_add') {

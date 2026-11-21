@@ -92,7 +92,7 @@ export interface Accounts {
 	mine: string | null;
 }
 
-export type View = 'glance' | 'list' | 'agenda' | 'heatmap' | 'week' | 'next' | 'board' | 'shopping' | 'tiles';
+export type View = 'glance' | 'list' | 'agenda' | 'heatmap' | 'calendar' | 'week' | 'next' | 'board' | 'shopping' | 'tiles';
 export type Scope = 'all' | 'own' | 'assigned';
 export type Sort = 'date' | 'priority' | 'title' | 'created' | 'manual';
 
@@ -118,8 +118,8 @@ export interface CardConfig {
 	max_items?: number;
 	/** Agenda: today and this many days after it. */
 	days?: number;
-	/** Heatmap: a month or a year. */
-	range?: 'month' | 'year';
+	/** Heatmap: a month or a year. Calendar: a month or a week. */
+	range?: 'month' | 'year' | 'week';
 	/** Body height in pixels; 0 grows with its content. */
 	height?: number;
 	/** Person tiles: where a tap goes, such as /lovelace/tasks. */

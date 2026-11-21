@@ -50,6 +50,7 @@ export function schema(config: CardConfig, people: Option[], lists: Option[], ta
 			{ value: 'list', label: 'List' },
 			{ value: 'agenda', label: 'Agenda' },
 			{ value: 'heatmap', label: 'Busy-day heatmap' },
+			{ value: 'calendar', label: 'Calendar' },
 			{ value: 'week', label: 'Week strip' },
 			{ value: 'next', label: 'Next up' },
 			{ value: 'board', label: 'Family board' },
@@ -65,6 +66,14 @@ export function schema(config: CardConfig, people: Option[], lists: Option[], ta
 					select('range', [
 						{ value: 'month', label: 'Month' },
 						{ value: 'year', label: 'Year' },
+					]),
+				]
+			: []),
+		...(view === 'calendar'
+			? [
+					select('range', [
+						{ value: 'month', label: 'Month' },
+						{ value: 'week', label: 'Week' },
 					]),
 				]
 			: []),

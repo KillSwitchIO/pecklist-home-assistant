@@ -1,4 +1,5 @@
 import { LitElement, type TemplateResult, html, nothing, svg } from 'lit';
+import { repeat } from 'lit/directives/repeat.js';
 import {
 	DEFAULTS,
 	VIEWS,
@@ -10,6 +11,7 @@ import {
 	addMonths,
 	agenda,
 	byList,
+	calendar,
 	collect,
 	dateChange,
 	firstWeekday,
@@ -27,9 +29,26 @@ import {
 } from './data';
 import './editor';
 import { icons, styles } from './styles';
-import type { Accounts, CardConfig, HomeAssistant, Item, PersonRef, Snapshot } from './types';
+import type { Accounts, CardConfig, HomeAssistant, Item, List, PersonRef, Snapshot, Task } from './types';
 
 const PRIORITIES = ['None', 'Low', 'Medium', 'High'];
+
+/** How long a finger rests on a task before it lifts to be dragged. Moving sooner is a scroll. */
+const HOLD_MS = 350;
+/** How far a mouse moves with the button down before a press becomes a drag. */
+const MOUSE_SLOP_PX = 5;
+/** How far a finger may wander while it holds. */
+const TOUCH_SLOP_PX = 8;
+
+interface Drag {
+	item: Item;
+	pointer: number;
+	x: number;
+	y: number;
+	touch: boolean;
+	active: boolean;
+	hold?: ReturnType<typeof setTimeout>;
+}
 
 interface Draft {
 	item: Item;
@@ -41,8 +60,12 @@ interface Draft {
 	notes: string;
 	/** Ids of the assignees, when the task can be assigned from here; else null. */
 	assignees: string[] | null;
+	/** The list it goes in, when it can move from here (a top-level task, with somewhere to go); else null. */
+	listId: string | null;
 	saving: boolean;
 	error: string;
+	/** What just happened to a subtask, said once. */
+	note: string;
 }
 
 function icon(path: string): TemplateResult {
@@ -72,6 +95,10 @@ export class PeckListCard extends LitElement {
 		_addOpen: { state: true },
 		_addError: { state: true },
 		_today: { state: true },
+		_range: { state: true },
+		_moves: { state: true },
+		_dragId: { state: true },
+		_dropDay: { state: true },
 	};
 
 	declare _config: CardConfig;
@@ -88,8 +115,18 @@ export class PeckListCard extends LitElement {
 	declare _addOpen: boolean;
 	declare _addError: string;
 	declare _today: string;
+	/** The calendar's month or week, once switched on the card; else the configuration's. */
+	declare _range: 'month' | 'week' | null;
+	/** Tasks just dragged to a day, shown there until the next snapshot. */
+	declare _moves: Map<string, string>;
+	declare _dragId: string | null;
+	declare _dropDay: string | null;
 
 	private _hass?: HomeAssistant;
+	private _drag: Drag | null = null;
+	private _swallowClick = false;
+	/** A task moved from the keyboard: it keeps the focus until the server's answer is drawn. */
+	private _focusTask: string | null = null;
 	private _unsubscribe: (() => void)[] = [];
 	private _generation = 0;
 	private _wanted = '';
@@ -111,6 +148,10 @@ export class PeckListCard extends LitElement {
 		this._addOpen = false;
 		this._addError = '';
 		this._today = todayIn(undefined);
+		this._range = null;
+		this._moves = new Map();
+		this._dragId = null;
+		this._dropDay = null;
 	}
 
 	// Home Assistant's card interface
@@ -147,7 +188,7 @@ export class PeckListCard extends LitElement {
 
 	getCardSize(): number {
 		const view = this._config.view;
-		return view === 'heatmap' ? 7 : view === 'tiles' ? 1 : view === 'next' ? 3 : 5;
+		return view === 'heatmap' ? 7 : view === 'calendar' ? 8 : view === 'tiles' ? 1 : view === 'next' ? 3 : 5;
 	}
 
 	getGridOptions(): Record<string, number> {
@@ -155,6 +196,7 @@ export class PeckListCard extends LitElement {
 		if (view === 'tiles') return { columns: 12, min_columns: 3, rows: 1, min_rows: 1 };
 		if (view === 'next') return { columns: 12, min_columns: 6, rows: 3, min_rows: 2 };
 		if (view === 'week') return { columns: 12, min_columns: 9, rows: 4, min_rows: 2 };
+		if (view === 'calendar') return { columns: 12, min_columns: 6, rows: 8, min_rows: 4 };
 		return { columns: 12, min_columns: 6, rows: this._config.height ? Math.ceil(this._config.height / 56) + 1 : 6, min_rows: 3 };
 	}
 
@@ -171,6 +213,7 @@ export class PeckListCard extends LitElement {
 	disconnectedCallback(): void {
 		super.disconnectedCallback();
 		clearInterval(this._clock);
+		this._endDrag();
 		this._drop();
 	}
 
@@ -213,6 +256,7 @@ export class PeckListCard extends LitElement {
 						if (generation !== this._generation) return;
 						this._snapshots = new Map(this._snapshots).set(id, snapshot);
 						if (this._pending.size) this._pending = new Set();
+						if (this._moves.size) this._moves = new Map();
 					},
 					{ type: 'pecklist/subscribe', entry_id: id },
 				);
@@ -312,6 +356,7 @@ export class PeckListCard extends LitElement {
 
 	private _edit(item: Item): void {
 		if (!item.canWrite) return;
+		const lists = item.task.parentId ? [] : this._moveTargets(item);
 		this._draft = {
 			item,
 			title: item.task.title,
@@ -321,14 +366,80 @@ export class PeckListCard extends LitElement {
 			tags: item.task.tags.join(', '),
 			notes: item.task.notes ?? '',
 			assignees: item.list?.shared && this._assignable(item).length > 1 ? [...item.task.assignees] : null,
+			listId: lists.length > 1 && lists.some((l) => l.id === item.task.listId) ? item.task.listId : null,
 			saving: false,
 			error: '',
+			note: '',
 		};
 	}
 
 	/** Who this task can be assigned to, through the account it is written with. */
 	private _assignable(item: Item): PersonRef[] {
 		return (this._snapshots.get(item.entryId)?.people ?? []).filter((p) => p.assignable);
+	}
+
+	/** The lists a task can move to: those its account may change. Its subtasks go with it. */
+	private _moveTargets(item: Item): List[] {
+		return (this._snapshots.get(item.entryId)?.lists ?? []).filter((l) => l.role === 'owner' || l.role === 'editor');
+	}
+
+	/** A task's subtasks, open ones first, in PeckList's order. */
+	private _children(item: Item): Task[] {
+		const key = (t: Task) => t.order ?? '￿';
+		return (this._snapshots.get(item.entryId)?.tasks ?? [])
+			.filter((t) => t.parentId === item.task.id)
+			.sort(
+				(a, b) =>
+					Number(a.status !== 'open') - Number(b.status !== 'open') ||
+					(key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0) ||
+					(a.createdAt ?? '').localeCompare(b.createdAt ?? ''),
+			);
+	}
+
+	/**
+	 * A change to a subtask, sent straight away: the dialog's Save is for the task itself. `toggling`
+	 * names a subtask being checked off or reopened, which shows where it is going meanwhile.
+	 */
+	private async _subtask(
+		type: 'create' | 'update' | 'complete' | 'reopen' | 'delete',
+		data: Record<string, unknown>,
+		toggling?: string,
+		done = '',
+	): Promise<void> {
+		const draft = this._draft;
+		if (!draft) return;
+		if (toggling) this._pending = new Set(this._pending).add(toggling);
+		this._set({ error: '', note: '' });
+		try {
+			await this._send(type, draft.item, data);
+			if (done) this._set({ note: done });
+		} catch (err) {
+			if (toggling) this._pending = new Set([...this._pending].filter((each) => each !== toggling));
+			this._set({ error: message(err) });
+		}
+	}
+
+	private _addSubtask(event: KeyboardEvent): void {
+		if (event.key !== 'Enter' || event.isComposing) return;
+		// Enter here adds a subtask; it must not save and close the dialog.
+		event.preventDefault();
+		const draft = this._draft;
+		const input = event.target as HTMLInputElement;
+		const title = input.value.trim();
+		if (!draft || !title) return;
+		input.value = '';
+		const { task } = draft.item;
+		void this._subtask('create', { task: { title, parentId: task.id, ...(task.listId ? { listId: task.listId } : {}) } });
+	}
+
+	private _renameSubtask(event: Event, child: Task): void {
+		const input = event.target as HTMLInputElement;
+		const title = input.value.trim();
+		if (!title) {
+			input.value = child.title;
+			return;
+		}
+		if (title !== child.title) void this._subtask('update', { task_id: child.id, changes: { title } });
 	}
 
 	private _set(change: Partial<Draft>): void {
@@ -350,6 +461,7 @@ export class PeckListCard extends LitElement {
 		const tags = parseTags(draft.tags);
 		if (tags.join('\n') !== task.tags.join('\n')) changes.tags = tags;
 		if (draft.assignees && [...draft.assignees].sort().join() !== [...task.assignees].sort().join()) changes.assignees = draft.assignees;
+		if (draft.listId && draft.listId !== task.listId) changes.listId = draft.listId;
 		const time = draft.day ? draft.time : '';
 		if (draft.day !== (draft.item.day ?? '') || time !== (draft.item.time ?? '')) {
 			Object.assign(changes, dateChange(task, draft.day || null, time || null));
@@ -491,6 +603,8 @@ export class PeckListCard extends LitElement {
 				return this._renderGroups(agenda(items, this._today, config.days ?? DEFAULTS.days, this._language), true, false);
 			case 'heatmap':
 				return this._renderHeatmap(items);
+			case 'calendar':
+				return this._renderCalendar(items);
 			case 'week':
 				return this._renderWeek(items);
 			case 'next':
@@ -859,6 +973,280 @@ export class PeckListCard extends LitElement {
 		`;
 	}
 
+	private _renderSubtasks(item: Item): TemplateResult {
+		const children = this._children(item);
+		return html`
+			<label id="subs">Subtasks</label>
+			<ul class="subs" aria-labelledby="subs">
+				${children.map((child) => {
+					const pending = this._pending.has(child.id);
+					const closed = (child.status === 'open') === pending;
+					return html`<li>
+						<button
+							type="button"
+							class="check p${child.priority} ${closed ? 'closed' : ''}"
+							role="checkbox"
+							aria-checked=${closed}
+							aria-label=${`${closed ? 'Reopen' : 'Complete'} ${child.title}`}
+							@click=${() => !pending && this._subtask(child.status === 'open' ? 'complete' : 'reopen', { task_id: child.id }, child.id)}
+						>
+							${icon(icons.check)}
+						</button>
+						<input
+							type="text"
+							maxlength="2000"
+							aria-label="Subtask title"
+							class=${closed ? 'closed' : ''}
+							.value=${child.title}
+							@change=${(e: Event) => this._renameSubtask(e, child)}
+							@keydown=${(e: KeyboardEvent) => {
+								if (e.key !== 'Enter' || e.isComposing) return;
+								e.preventDefault();
+								(e.target as HTMLInputElement).blur();
+							}}
+						/>
+						<button
+							type="button"
+							class="remove"
+							aria-label=${`Delete ${child.title}`}
+							title="Delete"
+							@click=${() => this._subtask('delete', { task_id: child.id }, undefined, `${child.title} moved to the trash.`)}
+						>
+							${icon(icons.close)}
+						</button>
+					</li>`;
+				})}
+			</ul>
+			<input class="sub-add" type="text" maxlength="2000" aria-label="Add a subtask" placeholder="Add a subtask" @keydown=${this._addSubtask} />
+			${this._draft?.note ? html`<div class="note" role="status">${this._draft.note}</div>` : nothing}
+		`;
+	}
+
+	// The calendar
+
+	/** A month, or a week, of days with their tasks. Drag a task to another day to move it there. */
+	private _renderCalendar(items: Item[]): TemplateResult {
+		const language = this._language;
+		const today = this._today;
+		const range = this._range ?? (this._config.range === 'week' ? 'week' : 'month');
+		const anchor = this._anchor ?? today;
+		const start = firstWeekday(this._hass?.locale?.first_weekday, language);
+		const weeks = calendar(items, range, anchor, start, this._moves);
+		const days = weeks.flat();
+		const selected = this._selected ?? today;
+		const people = this._person ? [] : this._people();
+		const color = (item: Item) =>
+			(people.length > 1 ? people.find((who) => item.owners.includes(who.entryId))?.color : undefined) ??
+			item.list?.color ??
+			'var(--pl-accent)';
+		const step = (direction: number) => {
+			this._anchor = range === 'week' ? addDays(anchor, 7 * direction) : addMonths(anchor, direction);
+		};
+		const inRange = days.filter((d) => d.inRange);
+		const label =
+			range === 'week'
+				? new Intl.DateTimeFormat(language, { month: 'short', day: 'numeric', timeZone: 'UTC' }).formatRange(
+						new Date(`${inRange[0]!.day}T00:00:00Z`),
+						new Date(`${inRange[inRange.length - 1]!.day}T00:00:00Z`),
+					)
+				: formatDay(anchor.slice(0, 7) + '-01', language, { month: 'long', year: 'numeric' });
+		const most = range === 'week' ? 8 : 3;
+		const chip = (item: Item, day: string) => {
+			const { task } = item;
+			const time = item.time ? formatTime(item.time, language) : '';
+			const movable = item.canWrite && item.open;
+			return html`<button
+				data-task=${task.id}
+				class="ctask ${item.open ? '' : 'closed'} ${this._dragId === task.id ? 'lifted' : ''} ${movable ? 'movable' : ''}"
+				style="--c:${color(item)}"
+				title=${time ? `${time} ${task.title}` : task.title}
+				aria-label=${time ? `${task.title}, ${time}` : task.title}
+				@pointerdown=${(e: PointerEvent) => this._grab(e, item)}
+				@touchmove=${this._touchMove}
+				@contextmenu=${(e: Event) => movable && e.preventDefault()}
+				@keydown=${(e: KeyboardEvent) => this._nudge(e, item, day)}
+				@click=${(e: Event) => {
+					e.stopPropagation();
+					if (this._swallowClick) return;
+					if (item.canWrite) this._edit(item);
+					else this._selected = day;
+				}}
+			>
+				${range === 'week' && time ? html`<b>${time}</b>` : nothing}<span>${task.title}</span>
+			</button>`;
+		};
+		const shown = days.find((d) => d.day === selected)?.items ?? items.filter((item) => (this._moves.get(item.task.id) ?? item.day) === selected);
+		return html`
+			<div class="nav">
+				<strong>${label}</strong>
+				<div class="seg" role="group" aria-label="Show">
+					<button aria-pressed=${range === 'month'} @click=${() => (this._range = 'month')}>Month</button>
+					<button aria-pressed=${range === 'week'} @click=${() => (this._range = 'week')}>Week</button>
+				</div>
+				<button aria-label="Today" title="Today" @click=${() => ((this._anchor = null), (this._selected = null))}>${icon(icons.today)}</button>
+				<button aria-label="Earlier" @click=${() => step(-1)}>${icon(icons.left)}</button>
+				<button aria-label="Later" @click=${() => step(1)}>${icon(icons.right)}</button>
+			</div>
+			<div
+				class="cal ${range}"
+				@keydown=${(e: KeyboardEvent) => e.key === 'Escape' && this._drag && this._endDrag()}
+			>
+				${days.slice(0, 7).map((d) => html`<span class="wd">${formatDay(d.day, language, { weekday: 'short' })}</span>`)}
+				${days.map(
+					(d) => html`<div
+						class="cday ${d.inRange ? '' : 'out'} ${d.day === today ? 'today' : ''} ${this._dropDay === d.day ? 'drop' : ''}"
+						data-day=${d.day}
+						aria-current=${d.day === selected ? 'date' : 'false'}
+						@click=${() => (this._selected = d.day)}
+					>
+						<button
+							class="dnum"
+							aria-pressed=${d.day === selected}
+							aria-label=${`${formatDay(d.day, language, { weekday: 'long', month: 'long', day: 'numeric' })}: ${d.items.length} ${d.items.length === 1 ? 'task' : 'tasks'}`}
+						>
+							${Number(d.day.slice(8))}
+						</button>
+						${repeat(
+							d.items.slice(0, d.items.length > most ? most - 1 : most),
+							// Keyed, so a chip keeps its element (and the focus) when the day's order changes.
+							(item) => item.task.id,
+							(item) => chip(item, d.day),
+						)}
+						${d.items.length > most ? html`<span class="more">+${d.items.length - most + 1}</span>` : nothing}
+					</div>`,
+				)}
+			</div>
+			<h3>${relativeDay(selected, today, language)} · ${formatDay(selected, language, { month: 'short', day: 'numeric' })}</h3>
+			${shown.length
+				? html`<ul>
+						${shown.map((item) => this._renderRow({ item, subtasks: [] }, true, false))}
+					</ul>`
+				: html`<div class="none-today">Nothing planned.</div>`}
+		`;
+	}
+
+	/** A press on a task in the calendar. A mouse drags once it moves; a finger once it has held still. */
+	private _grab(event: PointerEvent, item: Item): void {
+		if (!item.canWrite || !item.open || event.button > 0 || this._drag) return;
+		const touch = event.pointerType !== 'mouse';
+		const drag: Drag = { item, pointer: event.pointerId, x: event.clientX, y: event.clientY, touch, active: false };
+		this._drag = drag;
+		(event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+		// On the window, so the drag still ends when a snapshot re-renders the chip away mid-drag.
+		window.addEventListener('pointermove', this._onDragMove, true);
+		window.addEventListener('pointerup', this._onDragEnd, true);
+		window.addEventListener('pointercancel', this._endDrag, true);
+		if (touch) drag.hold = setTimeout(() => this._lift(drag), HOLD_MS);
+	}
+
+	private _lift(drag: Drag): void {
+		if (this._drag !== drag) return;
+		clearTimeout(drag.hold);
+		drag.active = true;
+		this._dragId = drag.item.task.id;
+		this._dropDay = this._moves.get(drag.item.task.id) ?? drag.item.day;
+	}
+
+	private _onDragMove = (event: PointerEvent): void => {
+		const drag = this._drag;
+		if (!drag || event.pointerId !== drag.pointer) return;
+		if (!drag.active) {
+			const far = Math.hypot(event.clientX - drag.x, event.clientY - drag.y);
+			// A finger that moves before it has held is scrolling the page.
+			if (drag.touch) {
+				if (far > TOUCH_SLOP_PX) this._endDrag();
+				return;
+			}
+			if (far < MOUSE_SLOP_PX) return;
+			this._lift(drag);
+		}
+		this._dropDay = this._dayAt(event.clientX, event.clientY) ?? this._dropDay;
+	};
+
+	private _onDragEnd = (event: PointerEvent): void => {
+		const drag = this._drag;
+		if (!drag || event.pointerId !== drag.pointer) return;
+		const day = drag.active ? (this._dayAt(event.clientX, event.clientY) ?? this._dropDay) : null;
+		this._endDrag();
+		if (!drag.active) return; // a tap: the click that follows opens the task
+		// The click that follows a drag is not a tap.
+		this._swallowClick = true;
+		setTimeout(() => (this._swallowClick = false), 0);
+		const { item } = drag;
+		if (day && day !== (this._moves.get(item.task.id) ?? item.day)) void this._moveTo(item, day);
+	};
+
+	/** While a task is lifted, a finger moves it rather than the page. */
+	private _touchMove = {
+		handleEvent: (event: TouchEvent): void => {
+			if (this._drag?.active && event.cancelable) event.preventDefault();
+		},
+		passive: false,
+	};
+
+	private _endDrag = (): void => {
+		window.removeEventListener('pointermove', this._onDragMove, true);
+		window.removeEventListener('pointerup', this._onDragEnd, true);
+		window.removeEventListener('pointercancel', this._endDrag, true);
+		if (this._drag) clearTimeout(this._drag.hold);
+		this._drag = null;
+		this._dragId = null;
+		this._dropDay = null;
+	};
+
+	/** Alt and an arrow move a task a day, or a week, from the keyboard. */
+	private _nudge(event: KeyboardEvent, item: Item, day: string): void {
+		const steps: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+		const step = steps[event.key];
+		if (!event.altKey || step === undefined || !item.canWrite || !item.open) return;
+		event.preventDefault();
+		this._focusTask = item.task.id;
+		void this._moveTo(item, addDays(day, step));
+	}
+
+	/**
+	 * The moved task is drawn on its new day, then again where the server's answer sorts it. Moving a
+	 * focused element drops its focus, so give it back after each, until that answer is in.
+	 */
+	protected updated(): void {
+		const id = this._focusTask;
+		if (!id) return;
+		// Only while the person is still in the calendar: not over a dialog, nor once they went elsewhere.
+		const active = (this.renderRoot as ShadowRoot).activeElement;
+		// No focus in the card and none on the page is the move's own doing; focus anywhere else is theirs.
+		const elsewhere = active ? !active.closest('.cal') : !!document.activeElement && document.activeElement !== document.body;
+		if (this._draft || elsewhere) {
+			this._focusTask = null;
+			return;
+		}
+		const chip = [...this.renderRoot.querySelectorAll<HTMLElement>('.ctask')].find((each) => each.dataset.task === id);
+		if (chip && active !== chip) chip.focus();
+		if (!this._moves.has(id)) this._focusTask = null;
+	}
+
+	/** The calendar day under a point. */
+	private _dayAt(x: number, y: number): string | null {
+		const root = this.renderRoot as ShadowRoot & { elementFromPoint?: (x: number, y: number) => Element | null };
+		const hit = root.elementFromPoint?.(x, y) ?? null;
+		return (hit?.closest('[data-day]') as HTMLElement | null)?.dataset.day ?? null;
+	}
+
+	/** Move a task to another day, keeping its time of day. */
+	private async _moveTo(item: Item, day: string): Promise<void> {
+		const id = item.task.id;
+		// Shown on its new day meanwhile; _pending is for a check on its way, which this is not.
+		this._moves = new Map(this._moves).set(id, day);
+		try {
+			await this._send('update', item, { task_id: id, changes: dateChange(item.task, day, item.time) });
+		} catch (err) {
+			const moves = new Map(this._moves);
+			moves.delete(id);
+			this._moves = moves;
+			this._problem = message(err);
+			setTimeout(() => (this._problem = ''), 6000);
+		}
+	}
+
 	private _renderDialog(draft: Draft): TemplateResult {
 		const close = () => (this._draft = null);
 		return html`
@@ -892,6 +1280,16 @@ export class PeckListCard extends LitElement {
 							/>
 						</label>
 					</div>
+					${draft.listId !== null
+						? html`<label>
+								List
+								<select @change=${(e: Event) => this._set({ listId: (e.target as HTMLSelectElement).value })}>
+									${this._moveTargets(draft.item).map(
+										(list) => html`<option value=${list.id} ?selected=${list.id === draft.listId}>${list.name}</option>`,
+									)}
+								</select>
+							</label>`
+						: nothing}
 					<label id="prio">Priority</label>
 					<div class="prio" role="group" aria-labelledby="prio">
 						${PRIORITIES.map(
@@ -935,6 +1333,7 @@ export class PeckListCard extends LitElement {
 						Notes
 						<textarea .value=${draft.notes} @input=${(e: Event) => this._set({ notes: (e.target as HTMLTextAreaElement).value })}></textarea>
 					</label>
+					${draft.item.task.parentId ? nothing : this._renderSubtasks(draft.item)}
 					${draft.error ? html`<div class="error" role="alert">${draft.error}</div>` : nothing}
 					<div class="actions">
 						<button type="button" class="btn danger" ?disabled=${draft.saving} @click=${this._delete}>Delete</button>
@@ -956,7 +1355,7 @@ if (!registry.customCards.some((card) => card.type === 'pecklist-card')) {
 	registry.customCards.push({
 		type: 'pecklist-card',
 		name: 'PeckList',
-		description: 'Tasks from PeckList: at a glance, lists, an agenda or a busy-day heatmap.',
+		description: 'Tasks from PeckList: at a glance, lists, an agenda, a calendar or a busy-day heatmap.',
 		preview: true,
 		documentationURL: 'https://github.com/KillSwitchIO/pecklist-card',
 	});

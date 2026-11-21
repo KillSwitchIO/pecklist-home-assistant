@@ -261,7 +261,7 @@ export function week(items: Item[], today: string, days = 7): { day: string; ite
 	});
 }
 
-export const VIEWS = ['glance', 'list', 'agenda', 'heatmap', 'week', 'next', 'board', 'shopping', 'tiles'] as const;
+export const VIEWS = ['glance', 'list', 'agenda', 'heatmap', 'calendar', 'week', 'next', 'board', 'shopping', 'tiles'] as const;
 
 export interface Row {
 	item: Item;
@@ -364,6 +364,45 @@ export function heatmap(items: Item[], range: 'month' | 'year', anchor: string, 
 		for (let i = 0; i < 7; i++) {
 			const count = counts.get(day) ?? 0;
 			week.push({ day, count, level: heatLevel(count), inRange: day >= first && day <= last });
+			day = addDays(day, 1);
+		}
+		weeks.push(week);
+	}
+	return weeks;
+}
+
+export interface CalendarDay {
+	day: string;
+	inRange: boolean;
+	items: Item[];
+}
+
+/**
+ * The calendar: whole weeks covering the month around `anchor`, or the one week holding it, each
+ * day with its tasks. `moved` places tasks that were just dragged on their new day until the
+ * server says so.
+ */
+export function calendar(
+	items: Item[],
+	range: 'month' | 'week',
+	anchor: string,
+	weekStart: number,
+	moved: ReadonlyMap<string, string> = new Map(),
+): CalendarDay[][] {
+	const byDay = new Map<string, Item[]>();
+	for (const item of items) {
+		const day = moved.get(item.task.id) ?? item.day;
+		if (day) byDay.set(day, [...(byDay.get(day) ?? []), item]);
+	}
+	const start = addDays(anchor, -((weekday(anchor) - weekStart + 7) % 7));
+	const first = range === 'week' ? start : `${anchor.slice(0, 7)}-01`;
+	const last = range === 'week' ? addDays(start, 6) : addDays(addMonths(first, 1), -1);
+	let day = addDays(first, -((weekday(first) - weekStart + 7) % 7));
+	const weeks: CalendarDay[][] = [];
+	while (day <= last) {
+		const week: CalendarDay[] = [];
+		for (let i = 0; i < 7; i++) {
+			week.push({ day, inRange: day >= first && day <= last, items: byDay.get(day) ?? [] });
 			day = addDays(day, 1);
 		}
 		weeks.push(week);

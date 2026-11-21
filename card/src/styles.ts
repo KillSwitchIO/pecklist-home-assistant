@@ -757,6 +757,143 @@ export const styles = css`
 		background: color-mix(in srgb, var(--pl-accent) calc(var(--level) * 22%), color-mix(in srgb, var(--pl-text) 6%, transparent));
 	}
 
+	/* Calendar */
+	.seg {
+		display: flex;
+		margin-right: 4px;
+		border: 1px solid var(--pl-line);
+		border-radius: 999px;
+		overflow: hidden;
+	}
+	.nav .seg button {
+		width: auto;
+		height: 2em;
+		padding: 0 10px;
+		border-radius: 0;
+		font-size: 0.85em;
+		color: var(--pl-muted);
+	}
+	.nav .seg button[aria-pressed='true'] {
+		background: color-mix(in srgb, var(--pl-accent) 15%, transparent);
+		color: var(--pl-text);
+	}
+	.cal {
+		display: grid;
+		grid-template-columns: repeat(7, minmax(0, 1fr));
+		gap: 3px;
+		padding: 0 8px 8px;
+	}
+	.cal .wd {
+		text-align: center;
+		color: var(--pl-muted);
+		font-size: 0.75em;
+	}
+	.cday {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+		min-height: 4.6em;
+		padding: 2px 2px 3px;
+		border-radius: 6px;
+		background: color-mix(in srgb, var(--pl-text) 4%, transparent);
+		cursor: pointer;
+	}
+	.cal.week .cday {
+		min-height: 11em;
+	}
+	.cday.out {
+		opacity: 0.5;
+	}
+	.cday[aria-current='date'] {
+		box-shadow: inset 0 0 0 2px var(--pl-accent);
+	}
+	.cday.drop {
+		background: color-mix(in srgb, var(--pl-accent) 22%, transparent);
+		box-shadow: inset 0 0 0 2px var(--pl-accent);
+	}
+	.dnum {
+		align-self: flex-start;
+		min-width: 1.7em;
+		padding: 1px 3px;
+		border-radius: 999px;
+		font-size: 0.8em;
+		text-align: center;
+	}
+	.cday.today .dnum {
+		background: var(--pl-accent);
+		color: var(--text-primary-color, #fff);
+	}
+	.ctask {
+		display: flex;
+		gap: 3px;
+		min-width: 0;
+		padding: 1px 4px;
+		border-left: 3px solid var(--c);
+		border-radius: 3px;
+		background: color-mix(in srgb, var(--c) 16%, transparent);
+		font-size: 0.75em;
+		line-height: 1.35;
+		text-align: left;
+		white-space: nowrap;
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-touch-callout: none;
+	}
+	.ctask span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.ctask b {
+		flex: none;
+		font-weight: 500;
+		color: var(--pl-muted);
+	}
+	.ctask.movable {
+		cursor: grab;
+	}
+	.ctask.closed span {
+		text-decoration: line-through;
+		color: var(--pl-muted);
+	}
+	.ctask.lifted {
+		opacity: 0.45;
+		cursor: grabbing;
+	}
+	.cal.week .ctask {
+		flex-direction: column;
+		gap: 0;
+		white-space: normal;
+	}
+	.cal.week .ctask span {
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow-wrap: anywhere;
+	}
+	/* A narrow week: one line a task, cut short, and the time left to the day's list below. */
+	@container (max-width: 480px) {
+		.cal.week .ctask {
+			white-space: nowrap;
+		}
+		.cal.week .ctask b {
+			display: none;
+		}
+		.cal.week .ctask span {
+			display: block;
+			overflow-wrap: normal;
+		}
+	}
+	.cday .more {
+		padding: 0 4px;
+		color: var(--pl-muted);
+		font-size: 0.72em;
+	}
+	:host([kiosk]) .ctask {
+		padding: 4px 6px;
+		font-size: 0.85em;
+	}
+
 	.scrim {
 		position: fixed;
 		inset: 0;
@@ -780,6 +917,7 @@ export const styles = css`
 		color: var(--pl-text);
 		font-size: 14px;
 		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+		container: dialog / inline-size;
 	}
 	label {
 		display: flex;
@@ -789,7 +927,8 @@ export const styles = css`
 		font-size: 0.85em;
 	}
 	.scrim input,
-	.scrim textarea {
+	.scrim textarea,
+	.scrim select {
 		padding: 9px 10px;
 		border: 1px solid var(--pl-line);
 		border-radius: 8px;
@@ -805,8 +944,21 @@ export const styles = css`
 	}
 	.two {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 		gap: 10px;
+	}
+	.scrim input,
+	.scrim select,
+	.scrim textarea {
+		box-sizing: border-box;
+		width: 100%;
+		min-width: 0;
+	}
+	/* A phone's native date and time controls will not shrink: one under the other there. */
+	@container dialog (max-width: 400px) {
+		.two {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
 	.prio {
 		display: grid;
@@ -822,6 +974,45 @@ export const styles = css`
 	.prio button[aria-pressed='true'] {
 		border-color: var(--pl-accent);
 		box-shadow: inset 0 0 0 1px var(--pl-accent);
+	}
+	.subs li {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 2px 0;
+	}
+	.subs .check {
+		margin-top: 0;
+	}
+	.subs input {
+		flex: 1;
+		min-width: 0;
+		padding: 5px 8px;
+		border-color: transparent;
+	}
+	.subs input:hover,
+	.subs input:focus {
+		border-color: var(--pl-line);
+	}
+	.subs input.closed {
+		color: var(--pl-muted);
+		text-decoration: line-through;
+	}
+	.subs .remove {
+		display: grid;
+		place-items: center;
+		width: 2em;
+		height: 2em;
+		border-radius: 50%;
+		color: var(--pl-muted);
+	}
+	.subs .remove:hover {
+		background: color-mix(in srgb, var(--pl-text) 8%, transparent);
+	}
+	.note {
+		margin-top: -6px;
+		color: var(--pl-muted);
+		font-size: 0.85em;
 	}
 	.assign {
 		display: flex;
@@ -866,4 +1057,5 @@ export const icons = {
 	right: 'M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
 	repeat: 'M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z',
 	today: 'M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2m0 16H5V9h14zM7 11h5v5H7z',
+	close: 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
 };

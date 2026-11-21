@@ -14,7 +14,7 @@ dishwasher* to Chores".
   and get tasks.
 - **Live**: changes made on your phone or in the browser show within a couple of seconds.
 - **Dashboard card**: the PeckList card comes with the integration. It adds at-a-glance, list,
-  agenda and busy-day heatmap views with priorities, tags, sections and subtasks. See
+  agenda, calendar and busy-day heatmap views with priorities, tags, sections and subtasks. See
   [Dashboard card](#dashboard-card).
 
 It needs PeckList **0.10.0 or newer** (the task API) and Home Assistant **2026.9 or newer**.
