@@ -772,4 +772,40 @@ describe('the card', () => {
 		// Other rows carry on as usual.
 		expect(row(root, 'Rake leaves').classList.contains('leaving')).toBe(false);
 	});
+
+	it('after closing, moving on to another row keeps the focus there through the redraw (Dev 1)', async () => {
+		const { card, root, hass } = await mount({ view: 'list', lists: ['chores'] });
+		const what = (title: string) => row(root, title).querySelector('.what') as HTMLElement;
+		what('Mow the lawn').focus();
+		what('Mow the lawn').click();
+		await settle(card);
+		root.querySelector('.scrim form')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		await settle(card);
+		expect((root.activeElement as HTMLElement).dataset.task).toBe('b2');
+		// Within the hold, the person moves on; then a snapshot redraws the card.
+		what('Rake leaves').focus();
+		hass.push();
+		await settle(card);
+		expect((root.activeElement as HTMLElement).dataset.task).toBe('b10');
+	});
+
+	it('when the list re-sorts under a restored focus, the focus follows the task, not the row it was in', async () => {
+		const { card, root, hass } = await mount({ view: 'list', lists: ['chores'] });
+		const what = (title: string) => row(root, title).querySelector('.what') as HTMLElement;
+		what('Mow the lawn').focus();
+		what('Mow the lawn').click();
+		await settle(card);
+		root.querySelector('.scrim form')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		await settle(card);
+		const restored = root.activeElement as HTMLElement;
+		expect(restored.dataset.task).toBe('b2');
+		// Then the server's answer (or another device) re-sorts the list: lit draws another task into
+		// the focused row, and the focus goes on to the task's own row.
+		hass.people[0]!.tasks.find((t) => t.id === 'b2')!.schedule = { start: addDays(TODAY, 300), end: null, allDay: true };
+		hass.push();
+		await settle(card);
+		const focused = root.activeElement as HTMLElement;
+		expect(focused.dataset.task).toBe('b2');
+		expect(focused.textContent).toContain('Mow the lawn');
+	});
 });

@@ -136,6 +136,8 @@ export class PeckListCard extends LitElement {
 	/** Which element of that task holds the focus: its calendar chip, its row, or the Next up title. */
 	private _focusKind = 'ctask';
 	private _focusHeld = false;
+	/** The element the card last gave that focus to: lit may draw another task into it. */
+	private _placed: HTMLElement | null = null;
 	/** What had the focus when the dialog opened, to give it back on close. */
 	private _opener: HTMLElement | null = null;
 	private _unsubscribe: (() => void)[] = [];
@@ -1221,6 +1223,7 @@ export class PeckListCard extends LitElement {
 		event.preventDefault();
 		this._focusTask = item.task.id;
 		this._focusKind = 'ctask';
+		this._placed = event.currentTarget as HTMLElement;
 		void this._moveTo(item, addDays(day, step));
 	}
 
@@ -1233,18 +1236,21 @@ export class PeckListCard extends LitElement {
 		const id = this._focusTask;
 		if (!id) return;
 		const active = (this.renderRoot as ShadowRoot).activeElement as HTMLElement | null;
-		// No focus in the card and none on the page is the redraw's own doing; focus anywhere else
-		// (another control, another card) is theirs.
+		// No focus in the card and none on the page is the redraw's own doing, and so is the element
+		// the card focused now drawn with another task (an unkeyed list re-sorted). Focus on any other
+		// element, in the card or out of it, is the person's own.
 		const elsewhere = active
-			? !active.dataset.task && !active.closest('.cal')
+			? active !== this._placed && active.dataset.task !== id
 			: !!document.activeElement && document.activeElement !== document.body;
 		if (this._draft || elsewhere) {
 			this._focusTask = null;
 			this._focusHeld = false;
+			this._placed = null;
 			return;
 		}
 		const target = [...this.renderRoot.querySelectorAll<HTMLElement>(`.${this._focusKind}`)].find((each) => each.dataset.task === id);
 		if (target && active !== target) target.focus();
+		if (target) this._placed = target;
 		if (!this._moves.has(id) && !this._focusHeld) this._focusTask = null;
 	}
 
