@@ -28,6 +28,8 @@ import {
 	week,
 } from './data';
 import './editor';
+import { icons, styles } from './styles';
+import type { Accounts, CardConfig, HomeAssistant, Item, List, PersonRef, Snapshot, Task } from './types';
 
 /** Where a browser remembers that the undated tray was hidden on its dashboards. */
 export const TRAY_KEY = 'pecklist-card:undated-tray';
@@ -39,8 +41,6 @@ function readTrayShown(): boolean {
 		return true;
 	}
 }
-import { icons, styles } from './styles';
-import type { Accounts, CardConfig, HomeAssistant, Item, List, PersonRef, Snapshot, Task } from './types';
 
 const PRIORITIES = ['None', 'Low', 'Medium', 'High'];
 
