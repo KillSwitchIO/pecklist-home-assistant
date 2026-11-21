@@ -301,6 +301,9 @@ export const styles = css`
 	.row:hover {
 		background: color-mix(in srgb, var(--pl-text) 5%, transparent);
 	}
+	.row.leaving {
+		opacity: 0.5;
+	}
 	.check {
 		display: grid;
 		place-items: center;

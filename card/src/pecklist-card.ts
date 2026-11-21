@@ -87,6 +87,7 @@ export class PeckListCard extends LitElement {
 		_problem: { state: true },
 		_person: { state: true },
 		_pending: { state: true },
+		_leaving: { state: true },
 		_draft: { state: true },
 		_anchor: { state: true },
 		_selected: { state: true },
@@ -107,6 +108,8 @@ export class PeckListCard extends LitElement {
 	declare _problem: string;
 	declare _person: string | null;
 	declare _pending: Set<string>;
+	/** Ticked-off tasks that Clear is taking off the list: still ticked, fading, until they are gone. */
+	declare _leaving: Set<string>;
 	declare _draft: Draft | null;
 	declare _anchor: string | null;
 	declare _selected: string | null;
@@ -148,6 +151,7 @@ export class PeckListCard extends LitElement {
 		this._problem = '';
 		this._person = null;
 		this._pending = new Set();
+		this._leaving = new Set();
 		this._draft = null;
 		this._anchor = null;
 		this._selected = null;
@@ -759,14 +763,17 @@ export class PeckListCard extends LitElement {
 
 	/** Take ticked-off tasks off the list. They go to PeckList's trash, where they can be restored. */
 	private async _clear(items: Item[]): Promise<void> {
-		this._pending = new Set([...this._pending, ...items.map((item) => item.task.id)]);
+		// Not _pending: that is a check on its way, and would show these ticked-off tasks unticked.
+		const ids = items.map((item) => item.task.id);
+		this._leaving = new Set([...this._leaving, ...ids]);
 		try {
 			for (const item of items) await this._send('delete', item, { task_id: item.task.id });
 		} catch (err) {
 			this._problem = message(err);
 			setTimeout(() => (this._problem = ''), 6000);
 		} finally {
-			this._pending = new Set();
+			// Only these: a check made meanwhile keeps showing where it is going.
+			this._leaving = new Set([...this._leaving].filter((id) => !ids.includes(id)));
 		}
 	}
 
@@ -871,6 +878,7 @@ export class PeckListCard extends LitElement {
 		const { task } = item;
 		const pending = this._pending.has(task.id);
 		const closed = item.open === pending; // a pending toggle shows where it is going
+		const leaving = this._leaving.has(task.id);
 		const late = item.open && item.day !== null && item.day < this._today;
 		// On a combined card a stripe says whose task it is; one person's view needs none.
 		const everyone = this._person || !stripe ? [] : this._people();
@@ -884,7 +892,7 @@ export class PeckListCard extends LitElement {
 			.join(', ');
 		return html`
 			<li>
-				<div class="row">
+				<div class="row ${leaving ? 'leaving' : ''}">
 					${whose.length
 						? html`<span class="who" role="img" aria-label=${whose.map((who) => who.name).join(', ')} title=${whose.map((who) => who.name).join(', ')}>
 								${whose.map((who) => html`<i style="background:${who.color}"></i>`)}
@@ -895,12 +903,12 @@ export class PeckListCard extends LitElement {
 						role="checkbox"
 						aria-checked=${closed}
 						aria-label=${`${closed ? 'Reopen' : 'Complete'} ${task.title}`}
-						?disabled=${!item.canWrite}
+						?disabled=${!item.canWrite || leaving}
 						@click=${() => this._toggle(item)}
 					>
 						${icon(icons.check)}
 					</button>
-					<button class="what" data-task=${task.id} ?disabled=${!item.canWrite} @click=${() => this._edit(item)}>
+					<button class="what" data-task=${task.id} ?disabled=${!item.canWrite || leaving} @click=${() => this._edit(item)}>
 						<span class="name">${task.title}</span>
 						<span class="meta">
 							${date ? html`<span class=${late ? 'late' : ''}>${date}</span>` : nothing}

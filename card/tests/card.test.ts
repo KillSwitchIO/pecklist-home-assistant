@@ -749,4 +749,27 @@ describe('the card', () => {
 		expect(root.querySelector('.scrim')).toBeNull();
 		expect(root.activeElement).toBeNull();
 	});
+
+	it('shopping list: what Clear is taking away stays ticked while it goes (Manager)', async () => {
+		const hass = household(TODAY);
+		// Deletes that never answer: what the card shows while they are on their way.
+		const answer = hass.callWS.bind(hass);
+		hass.callWS = (<T,>(message: Record<string, unknown>): Promise<T> => {
+			if (message.type === 'pecklist/task/delete') {
+				hass.calls.push(message);
+				return new Promise<T>(() => {});
+			}
+			return answer<T>(message);
+		}) as typeof hass.callWS;
+		const { card, root } = await mount({ view: 'shopping', lists: ['chores'] }, hass);
+		(root.querySelector('.clear') as HTMLElement).click();
+		await settle(card);
+		expect(writes(hass)).toEqual([{ type: 'pecklist/task/delete', entry_id: 'ben', task_id: 'b8' }]);
+		const plants = row(root, 'Water the plants');
+		expect(plants.classList.contains('leaving')).toBe(true);
+		const check = plants.querySelector('.check') as HTMLButtonElement;
+		expect([check.getAttribute('aria-checked'), check.disabled]).toEqual(['true', true]);
+		// Other rows carry on as usual.
+		expect(row(root, 'Rake leaves').classList.contains('leaving')).toBe(false);
+	});
 });
