@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { addDays, todayIn } from '../src/data';
-import { PeckListCard } from '../src/pecklist-card';
+import { PeckListCard, TRAY_KEY } from '../src/pecklist-card';
 import type { CardConfig } from '../src/types';
 import { type FakeHass, household } from './fake-hass';
 
@@ -32,6 +32,7 @@ afterEach(() => {
 	while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement as HTMLElement;
 	active?.blur?.();
 	document.body.replaceChildren();
+	localStorage.removeItem(TRAY_KEY);
 });
 
 function pointer(type: string, target: Element, x: number, y: number, pointerType = 'mouse'): void {
@@ -812,5 +813,74 @@ describe('the card', () => {
 		const focused = root.activeElement as HTMLElement;
 		expect(focused.dataset.task).toBe('b2');
 		expect(focused.textContent).toContain('Mow the lawn');
+	});
+
+	it('calendar: no undated tray, and no button for it, unless the settings turn it on (Ben)', async () => {
+		const { root } = await mount({ view: 'calendar' });
+		expect(root.querySelector('.tray')).toBeNull();
+		expect(root.querySelector('.tray-toggle')).toBeNull();
+		// Hidden on the dashboard earlier changes nothing while the settings have it off.
+		localStorage.setItem(TRAY_KEY, '1');
+		const again = await mount({ view: 'calendar', undated_tray: false });
+		expect(again.root.querySelector('.tray, .tray-toggle')).toBeNull();
+	});
+
+	it('calendar: undated tasks wait in a tray; a drop on a day dates them, a drop back on the tray leaves them', async () => {
+		const { card, root, hass } = await mount({ view: 'calendar', undated_tray: true });
+		const tray = root.querySelector('.tray') as HTMLElement;
+		// Open, undated and not a subtask: Milk and Coffee beans go with Groceries.
+		expect(text(tray, '.ctask')).toEqual(['Call the dentist']);
+		expect(text(tray, 'h4')).toEqual(['Undated 1']);
+		const dentist = chipOf(root, 'Call the dentist');
+		// Let go over the tray, even after passing over a day: nothing moves.
+		const target = besideToday(root);
+		over(root, () => target);
+		pointer('pointerdown', dentist, 10, 10);
+		pointer('pointermove', dentist, 60, 10);
+		await settle(card);
+		expect(target.classList.contains('drop')).toBe(true);
+		over(root, () => tray);
+		pointer('pointermove', dentist, 70, 10);
+		await settle(card);
+		expect(root.querySelector('.drop')).toBeNull();
+		pointer('pointerup', dentist, 70, 10);
+		dentist.click();
+		await settle(card);
+		expect(writes(hass)).toEqual([]);
+		expect(root.querySelector('.scrim')).toBeNull();
+		// Onto a day: it takes that date, all day, and leaves the tray.
+		const day = target.dataset.day!;
+		over(root, () => target);
+		pointer('pointerdown', dentist, 10, 10);
+		pointer('pointermove', dentist, 60, 10);
+		pointer('pointerup', dentist, 60, 10);
+		await settle(card);
+		expect(writes(hass)).toEqual([
+			{ type: 'pecklist/task/update', entry_id: 'ben', task_id: 'b7', changes: { schedule: { start: day, end: null, allDay: true } } },
+		]);
+		expect(text(root.querySelector(`.cday[data-day="${day}"]`)!, '.ctask')).toContain('Call the dentist');
+		expect(text(root, '.tray .ctask')).toEqual([]);
+		expect(text(root, '.tray-none')).toEqual(['No undated tasks.']);
+	});
+
+	it('calendar: the button on the card hides the tray, and this browser remembers it (Ben)', async () => {
+		const { card, root } = await mount({ view: 'calendar', undated_tray: true });
+		const toggle = root.querySelector('.tray-toggle') as HTMLButtonElement;
+		expect(toggle.getAttribute('aria-pressed')).toBe('true');
+		expect(root.querySelector('.tray')).not.toBeNull();
+		toggle.click();
+		await settle(card);
+		expect(toggle.getAttribute('aria-pressed')).toBe('false');
+		expect(root.querySelector('.tray')).toBeNull();
+		expect(localStorage.getItem(TRAY_KEY)).toBe('0');
+		// Another card, or the page loaded again, in the same browser: still hidden, the button still there.
+		const again = await mount({ view: 'calendar', undated_tray: true });
+		const button = again.root.querySelector('.tray-toggle') as HTMLButtonElement;
+		expect(again.root.querySelector('.tray')).toBeNull();
+		expect(button.getAttribute('aria-pressed')).toBe('false');
+		button.click();
+		await settle(again.card);
+		expect(again.root.querySelector('.tray')).not.toBeNull();
+		expect(localStorage.getItem(TRAY_KEY)).toBe('1');
 	});
 });

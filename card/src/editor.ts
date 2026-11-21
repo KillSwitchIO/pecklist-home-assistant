@@ -25,6 +25,7 @@ const LABELS: Record<string, string> = {
 	max_items: 'Tasks to list',
 	days: 'Days ahead',
 	range: 'Range',
+	undated_tray: 'Tray of undated tasks',
 	height: 'Height in pixels (0 grows to fit)',
 	navigation_path: 'Open on tap',
 };
@@ -35,6 +36,7 @@ const HELP: Record<string, string> = {
 	lists: 'Leave empty for every list.',
 	tags: 'Leave empty for every tag. A tag also matches the tags under it.',
 	kiosk: 'Large touch targets, and adding goes through Assist voice instead of a keyboard.',
+	undated_tray: 'Drag a task without a date onto a day to give it that date. A button on the card hides or shows the tray.',
 };
 
 function select(name: string, options: Option[], multiple = false, custom = false): Record<string, unknown> {
@@ -75,6 +77,7 @@ export function schema(config: CardConfig, people: Option[], lists: Option[], ta
 						{ value: 'month', label: 'Month' },
 						{ value: 'week', label: 'Week' },
 					]),
+					{ name: 'undated_tray', selector: { boolean: {} } },
 				]
 			: []),
 		...(people.length > 1 ? [select('entries', people, true)] : []),

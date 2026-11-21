@@ -8,6 +8,9 @@ matches `custom_components/pecklist/manifest.json`; the GitHub mirror publishes 
 - The card has a **Calendar** view: a month, or a week, with each day's tasks. Drag a task to
   another day to move it there, keeping its time; on a touch screen, hold it a moment first. Tap a
   task to edit it, or a day to list it.
+- The calendar can show a tray of tasks without a date beside it (`undated_tray: true`, or **Tray
+  of undated tasks** in the card's settings). Drag one onto a day to give it that date. A button on
+  the card hides or shows the tray, and each browser remembers the choice.
 - The card's edit dialog can move a task to another list (its subtasks go with it), and lists the
   task's subtasks: check them off, rename them, delete them, and add new ones.
 

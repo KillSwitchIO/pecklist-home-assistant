@@ -896,6 +896,60 @@ export const styles = css`
 		padding: 4px 6px;
 		font-size: 0.85em;
 	}
+	.nav .tray-toggle[aria-pressed='true'] {
+		color: var(--pl-accent);
+		background: color-mix(in srgb, var(--pl-accent) 15%, transparent);
+	}
+	/* The undated tray: under the calendar on a narrow card, beside it on a wide one. */
+	.tray {
+		margin: 0 8px 8px;
+		padding: 4px 6px 6px;
+		border-radius: 6px;
+		background: color-mix(in srgb, var(--pl-text) 4%, transparent);
+	}
+	.tray h4 {
+		margin: 0 0 4px;
+		font-size: 0.8em;
+		font-weight: 500;
+		color: var(--pl-muted);
+	}
+	.tray h4 span {
+		margin-left: 4px;
+	}
+	.tray-tasks {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 3px;
+		max-height: 7.5em;
+		overflow-y: auto;
+	}
+	.tray .ctask {
+		max-width: 100%;
+	}
+	.tray-none {
+		margin: 0;
+		color: var(--pl-muted);
+		font-size: 0.8em;
+	}
+	@container (min-width: 680px) {
+		.calwrap.with-tray {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) minmax(9em, 22%);
+			align-items: start;
+		}
+		.calwrap.with-tray .cal {
+			padding-right: 0;
+		}
+		.calwrap.with-tray .tray {
+			margin-left: 6px;
+			max-height: 100%;
+		}
+		.calwrap.with-tray .tray-tasks {
+			flex-direction: column;
+			flex-wrap: nowrap;
+			max-height: 28em;
+		}
+	}
 
 	.scrim {
 		position: fixed;
@@ -1061,4 +1115,5 @@ export const icons = {
 	repeat: 'M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z',
 	today: 'M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2m0 16H5V9h14zM7 11h5v5H7z',
 	close: 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+	tray: 'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2m0 12h-4a3 3 0 0 1-6 0H5V5h14z',
 };
