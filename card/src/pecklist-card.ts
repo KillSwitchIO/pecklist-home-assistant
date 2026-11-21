@@ -125,8 +125,16 @@ export class PeckListCard extends LitElement {
 	private _hass?: HomeAssistant;
 	private _drag: Drag | null = null;
 	private _swallowClick = false;
-	/** A task moved from the keyboard: it keeps the focus until the server's answer is drawn. */
+	/**
+	 * A task to keep the focus on: one moved from the keyboard, until the server's answer is drawn;
+	 * or the one whose dialog just closed, for a moment, while its save is drawn.
+	 */
 	private _focusTask: string | null = null;
+	/** Which element of that task holds the focus: its calendar chip, its row, or the Next up title. */
+	private _focusKind = 'ctask';
+	private _focusHeld = false;
+	/** What had the focus when the dialog opened, to give it back on close. */
+	private _opener: HTMLElement | null = null;
 	private _unsubscribe: (() => void)[] = [];
 	private _generation = 0;
 	private _wanted = '';
@@ -356,6 +364,7 @@ export class PeckListCard extends LitElement {
 
 	private _edit(item: Item): void {
 		if (!item.canWrite) return;
+		this._opener = ((this.renderRoot as ShadowRoot).activeElement as HTMLElement | null) ?? null;
 		const lists = item.task.parentId ? [] : this._moveTargets(item);
 		this._draft = {
 			item,
@@ -371,6 +380,8 @@ export class PeckListCard extends LitElement {
 			error: '',
 			note: '',
 		};
+		// The dialog itself takes the focus: Tab goes into it, and no keyboard pops up on a touch screen.
+		void this.updateComplete.then(() => (this.renderRoot.querySelector('.scrim form') as HTMLElement | null)?.focus());
 	}
 
 	/** Who this task can be assigned to, through the account it is written with. */
@@ -467,13 +478,13 @@ export class PeckListCard extends LitElement {
 			Object.assign(changes, dateChange(task, draft.day || null, time || null));
 		}
 		if (!Object.keys(changes).length) {
-			this._draft = null;
+			this._closeDialog();
 			return;
 		}
 		this._set({ saving: true, error: '' });
 		try {
 			await this._send('update', draft.item, { task_id: task.id, changes });
-			this._draft = null;
+			this._closeDialog();
 		} catch (err) {
 			this._set({ saving: false, error: message(err) });
 		}
@@ -485,7 +496,7 @@ export class PeckListCard extends LitElement {
 		this._set({ saving: true, error: '' });
 		try {
 			await this._send('delete', draft.item, { task_id: draft.item.task.id });
-			this._draft = null;
+			this._closeDialog();
 		} catch (err) {
 			this._set({ saving: false, error: message(err) });
 		}
@@ -684,7 +695,7 @@ export class PeckListCard extends LitElement {
 					${item.list ? html`<span><i class="dot" style=${item.list.color ? `background:${item.list.color}` : ''}></i>${item.list.name}</span>` : nothing}
 					${item.others.map((name) => html`<span>@${name}</span>`)}
 				</div>
-				<button class="hero-title" ?disabled=${!item.canWrite} @click=${() => this._edit(item)}>${item.task.title}</button>
+				<button class="hero-title" data-task=${item.task.id} ?disabled=${!item.canWrite} @click=${() => this._edit(item)}>${item.task.title}</button>
 				<div class="hero-actions">
 					<button class="btn primary" ?disabled=${!item.canWrite || busy} @click=${() => this._toggle(item)}>${icon(icons.check)} Done</button>
 					<button class="btn" ?disabled=${!item.canWrite || busy} @click=${() => this._postpone(item)}>Tomorrow</button>
@@ -889,7 +900,7 @@ export class PeckListCard extends LitElement {
 					>
 						${icon(icons.check)}
 					</button>
-					<button class="what" ?disabled=${!item.canWrite} @click=${() => this._edit(item)}>
+					<button class="what" data-task=${task.id} ?disabled=${!item.canWrite} @click=${() => this._edit(item)}>
 						<span class="name">${task.title}</span>
 						<span class="meta">
 							${date ? html`<span class=${late ? 'late' : ''}>${date}</span>` : nothing}
@@ -1201,27 +1212,32 @@ export class PeckListCard extends LitElement {
 		if (!event.altKey || step === undefined || !item.canWrite || !item.open) return;
 		event.preventDefault();
 		this._focusTask = item.task.id;
+		this._focusKind = 'ctask';
 		void this._moveTo(item, addDays(day, step));
 	}
 
 	/**
-	 * The moved task is drawn on its new day, then again where the server's answer sorts it. Moving a
-	 * focused element drops its focus, so give it back after each, until that answer is in.
+	 * A task that keeps the focus is drawn again (on its new day, or where its save sorts it), and an
+	 * element that moves or is drawn anew drops its focus: give it back after each render, while the
+	 * person has not gone elsewhere.
 	 */
 	protected updated(): void {
 		const id = this._focusTask;
 		if (!id) return;
-		// Only while the person is still in the calendar: not over a dialog, nor once they went elsewhere.
-		const active = (this.renderRoot as ShadowRoot).activeElement;
-		// No focus in the card and none on the page is the move's own doing; focus anywhere else is theirs.
-		const elsewhere = active ? !active.closest('.cal') : !!document.activeElement && document.activeElement !== document.body;
+		const active = (this.renderRoot as ShadowRoot).activeElement as HTMLElement | null;
+		// No focus in the card and none on the page is the redraw's own doing; focus anywhere else
+		// (another control, another card) is theirs.
+		const elsewhere = active
+			? !active.dataset.task && !active.closest('.cal')
+			: !!document.activeElement && document.activeElement !== document.body;
 		if (this._draft || elsewhere) {
 			this._focusTask = null;
+			this._focusHeld = false;
 			return;
 		}
-		const chip = [...this.renderRoot.querySelectorAll<HTMLElement>('.ctask')].find((each) => each.dataset.task === id);
-		if (chip && active !== chip) chip.focus();
-		if (!this._moves.has(id)) this._focusTask = null;
+		const target = [...this.renderRoot.querySelectorAll<HTMLElement>(`.${this._focusKind}`)].find((each) => each.dataset.task === id);
+		if (target && active !== target) target.focus();
+		if (!this._moves.has(id) && !this._focusHeld) this._focusTask = null;
 	}
 
 	/** The calendar day under a point. */
@@ -1247,15 +1263,57 @@ export class PeckListCard extends LitElement {
 		}
 	}
 
+	/** Close the dialog and give the focus back to what opened it, or to its task drawn again. */
+	private _closeDialog(): void {
+		const draft = this._draft;
+		const opener = this._opener;
+		// Let go of the focus inside the dialog before it goes, as a browser would when it is removed.
+		const inside = (this.renderRoot as ShadowRoot).activeElement as HTMLElement | null;
+		if (inside?.closest('.scrim')) inside.blur();
+		this._draft = null;
+		this._opener = null;
+		// Opened without a focus (a tap where buttons take none): nothing to give back.
+		if (!draft || !opener) return;
+		const id = draft.item.task.id;
+		this._focusTask = id;
+		this._focusKind = opener.classList.contains('ctask') ? 'ctask' : opener.classList.contains('hero-title') ? 'hero-title' : 'what';
+		this._focusHeld = true;
+		setTimeout(() => {
+			if (this._focusTask !== id) return;
+			this._focusHeld = false;
+			this._focusTask = null;
+		}, 3000);
+	}
+
+	/** Tab stays in the dialog while it is open. */
+	private _trapTab(event: KeyboardEvent): void {
+		if (event.key !== 'Tab') return;
+		const form = event.currentTarget as HTMLElement;
+		const stops = [...form.querySelectorAll<HTMLElement>('input, select, textarea, button')].filter(
+			(each) => !(each as HTMLButtonElement).disabled && !each.closest('[hidden]'),
+		);
+		const first = stops[0];
+		const last = stops[stops.length - 1];
+		if (!first || !last) return;
+		const active = (this.renderRoot as ShadowRoot).activeElement;
+		if (event.shiftKey && (active === first || active === form)) {
+			event.preventDefault();
+			last.focus();
+		} else if (!event.shiftKey && active === last) {
+			event.preventDefault();
+			first.focus();
+		}
+	}
+
 	private _renderDialog(draft: Draft): TemplateResult {
-		const close = () => (this._draft = null);
+		const close = () => this._closeDialog();
 		return html`
 			<div
 				class="scrim"
 				@click=${(e: Event) => e.target === e.currentTarget && close()}
 				@keydown=${(e: KeyboardEvent) => e.key === 'Escape' && close()}
 			>
-				<form role="dialog" aria-modal="true" aria-label="Edit task" @submit=${this._save}>
+				<form role="dialog" aria-modal="true" aria-label="Edit task" tabindex="-1" @submit=${this._save} @keydown=${this._trapTab}>
 					<label>
 						Title
 						<input

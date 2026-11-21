@@ -27,6 +27,10 @@ const writes = (hass: FakeHass) => hass.calls.filter((c) => String(c.type).start
 const row = (root: ShadowRoot, title: string) => [...root.querySelectorAll('.row')].find((r) => r.querySelector('.name')!.textContent === title)!;
 
 afterEach(() => {
+	// happy-dom's ShadowRoot.activeElement throws once the focused element is gone: let go of it first.
+	let active = document.activeElement as HTMLElement | null;
+	while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement as HTMLElement;
+	active?.blur?.();
 	document.body.replaceChildren();
 });
 
@@ -683,5 +687,66 @@ describe('the card', () => {
 		outside.focus();
 		await settle(card);
 		expect(document.activeElement).toBe(outside);
+	});
+
+	it('a dialog opened from the keyboard takes the focus, keeps Tab inside, and gives it back (Manager)', async () => {
+		const { card, root } = await mount({ view: 'list', lists: ['chores'] });
+		const what = row(root, 'Mow the lawn').querySelector('.what') as HTMLElement;
+		what.focus();
+		what.click();
+		await settle(card);
+		const form = root.querySelector('.scrim form') as HTMLElement;
+		expect(root.activeElement).toBe(form);
+		// Tab from the last control goes round to the first; Shift+Tab from the dialog to the last.
+		const tab = (from: HTMLElement, shiftKey = false) => {
+			const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+			from.dispatchEvent(event);
+			return event.defaultPrevented;
+		};
+		const save = form.querySelector('.btn.primary') as HTMLElement;
+		const title = form.querySelector('input') as HTMLElement;
+		form.focus();
+		expect(tab(form, true)).toBe(true);
+		expect(root.activeElement).toBe(save);
+		expect(tab(save)).toBe(true);
+		expect(root.activeElement).toBe(title);
+		expect(tab(title)).toBe(false);
+		// Escape closes it, and the focus is back on the row that opened it.
+		title.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		await settle(card);
+		expect(root.querySelector('.scrim')).toBeNull();
+		expect((root.activeElement as HTMLElement).dataset.task).toBe('b2');
+		expect(root.activeElement!.classList.contains('what')).toBe(true);
+	});
+
+	it('after a save moves the task, the focus follows it to its new day (Manager)', async () => {
+		const { card, root, hass } = await mount({ view: 'calendar' });
+		const target = besideToday(root);
+		const chip = chipOf(root, 'Empty the dishwasher');
+		chip.focus();
+		chip.click();
+		await settle(card);
+		expect(root.activeElement).toBe(root.querySelector('.scrim form'));
+		const date = root.querySelector('.scrim input[type="date"]') as HTMLInputElement;
+		date.value = target.dataset.day!;
+		date.dispatchEvent(new Event('input'));
+		await settle(card);
+		root.querySelector('.scrim form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+		await settle(card);
+		expect(writes(hass).map((w) => w.task_id)).toEqual(['b1']);
+		const focused = root.activeElement as HTMLElement;
+		expect(focused.classList.contains('ctask')).toBe(true);
+		expect(focused.dataset.task).toBe('b1');
+		expect(focused.closest('.cday')!.getAttribute('data-day')).toBe(target.dataset.day);
+	});
+
+	it('a dialog opened by a tap that gave no focus leaves the focus alone on close', async () => {
+		const { card, root } = await mount({ view: 'list', lists: ['chores'] });
+		(row(root, 'Mow the lawn').querySelector('.what') as HTMLElement).click();
+		await settle(card);
+		(root.querySelector('.scrim .btn:not(.danger):not(.primary)') as HTMLElement).click();
+		await settle(card);
+		expect(root.querySelector('.scrim')).toBeNull();
+		expect(root.activeElement).toBeNull();
 	});
 });
