@@ -421,6 +421,7 @@ describe('the card', () => {
 		await settle(card);
 		(subtask('Milk').querySelector('.remove') as HTMLElement).click();
 		await settle(card);
+		expect(text(root, '.scrim .note')).toEqual(['Milk moved to the trash.']);
 		const add = root.querySelector('.sub-add') as HTMLInputElement;
 		add.value = 'Bread';
 		const enter = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
@@ -551,10 +552,17 @@ describe('the card', () => {
 		expect(days()).toContain(TODAY);
 		expect(root.querySelector('.cday.out')).toBeNull();
 		expect(text(chipOf(root, 'Empty the dishwasher'), 'b')).toEqual(['6:00 PM']);
-		// From the keyboard: Alt and an arrow move it a day.
-		chipOf(root, 'Empty the dishwasher').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true, cancelable: true }));
+		// From the keyboard: Alt and an arrow move it a day, toward a day in this week, and it keeps the focus.
+		const right = days().indexOf(TODAY) < 6;
+		const dish = chipOf(root, 'Empty the dishwasher');
+		dish.focus();
+		dish.dispatchEvent(new KeyboardEvent('keydown', { key: right ? 'ArrowRight' : 'ArrowLeft', altKey: true, bubbles: true, cancelable: true }));
 		await settle(card);
-		expect((writes(hass)[0] as { changes: unknown }).changes).toEqual({ schedule: { start: `${addDays(TODAY, 1)}T18:00`, end: null, allDay: false } });
+		const next = addDays(TODAY, right ? 1 : -1);
+		expect((writes(hass)[0] as { changes: unknown }).changes).toEqual({ schedule: { start: `${next}T18:00`, end: null, allDay: false } });
+		const focused = root.activeElement as HTMLElement;
+		expect(focused.textContent).toContain('Empty the dishwasher');
+		expect(focused.closest('.cday')!.getAttribute('data-day')).toBe(next);
 		const first = days()[0]!;
 		(root.querySelector('.nav [aria-label="Later"]') as HTMLElement).click();
 		await settle(card);
@@ -564,5 +572,71 @@ describe('the card', () => {
 		await settle(card);
 		expect(days().length).toBeGreaterThanOrEqual(28);
 		expect(month!.getAttribute('aria-pressed')).toBe('true');
+	});
+
+	it('a move or a subtask edit on its way does not show as checked off (Dev 1)', async () => {
+		const hass = household(TODAY);
+		// Writes that never answer: what the card shows while they are on their way.
+		const answer = hass.callWS.bind(hass);
+		hass.callWS = (<T,>(message: Record<string, unknown>): Promise<T> => {
+			if (message.type === 'pecklist/task/update' || message.type === 'pecklist/task/delete') {
+				hass.calls.push(message);
+				return new Promise<T>(() => {});
+			}
+			return answer<T>(message);
+		}) as typeof hass.callWS;
+		const { card, root } = await mount({ view: 'calendar' }, hass);
+		const target = besideToday(root);
+		over(root, () => target);
+		const chip = chipOf(root, 'Empty the dishwasher');
+		pointer('pointerdown', chip, 10, 10);
+		pointer('pointermove', chip, 60, 10);
+		pointer('pointerup', chip, 60, 10);
+		await settle(card);
+		expect(writes(hass)).toHaveLength(1);
+		target.click();
+		await settle(card);
+		expect(text(target, '.ctask')).toContain('Empty the dishwasher');
+		expect(row(root, 'Empty the dishwasher').querySelector('.check')!.getAttribute('aria-checked')).toBe('false');
+
+		document.body.replaceChildren();
+		const list = await mount({ view: 'list', lists: ['household'] }, hass);
+		(row(list.root, 'Groceries').querySelector('.what') as HTMLElement).click();
+		await settle(list.card);
+		const subtask = (title: string) => [...list.root.querySelectorAll('.subs li')].find((li) => (li.querySelector('input') as HTMLInputElement).value === title)!;
+		const rename = subtask('Milk').querySelector('input') as HTMLInputElement;
+		rename.value = 'Oat milk';
+		rename.dispatchEvent(new Event('change'));
+		(subtask('Coffee beans').querySelector('.remove') as HTMLElement).click();
+		await settle(list.card);
+		expect([...list.root.querySelectorAll('.subs .check')].map((c) => c.getAttribute('aria-checked'))).toEqual(['false', 'false']);
+	});
+
+	it('a drag ends even when its task is drawn away mid-drag, and the next one works (Dev 1)', async () => {
+		const { card, root, hass } = await mount({ view: 'calendar' });
+		const target = besideToday(root);
+		over(root, () => target);
+		pointer('pointerdown', chipOf(root, 'Empty the dishwasher'), 10, 10);
+		pointer('pointermove', chipOf(root, 'Empty the dishwasher'), 60, 10);
+		await settle(card);
+		// Another device moves it meanwhile: the chip under the pointer goes away.
+		const ben = hass.people[0]!;
+		ben.tasks.find((t) => t.id === 'b1')!.schedule = { start: `${addDays(TODAY, 40)}T18:00`, end: null, allDay: false };
+		hass.push();
+		await settle(card);
+		expect(chipOf(root, 'Empty the dishwasher')).toBeUndefined();
+		// The release still lands where the hand let go, and the drag is over.
+		pointer('pointerup', document.body, 60, 10);
+		await settle(card);
+		expect(root.querySelector('.drop, .lifted')).toBeNull();
+		expect(writes(hass).map((w) => w.task_id)).toEqual(['b1']);
+		const bins = chipOf(root, 'Take out the bins');
+		pointer('pointerdown', bins, 10, 10);
+		pointer('pointermove', bins, 60, 10);
+		await settle(card);
+		expect(bins.classList.contains('lifted')).toBe(true);
+		pointer('pointerup', bins, 60, 10);
+		await settle(card);
+		expect(writes(hass).map((w) => w.task_id)).toEqual(['b1', 'h1']);
 	});
 });

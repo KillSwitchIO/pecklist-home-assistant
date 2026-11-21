@@ -982,6 +982,11 @@ export const styles = css`
 	.subs .remove:hover {
 		background: color-mix(in srgb, var(--pl-text) 8%, transparent);
 	}
+	.note {
+		margin-top: -6px;
+		color: var(--pl-muted);
+		font-size: 0.85em;
+	}
 	.assign {
 		display: flex;
 		flex-wrap: wrap;

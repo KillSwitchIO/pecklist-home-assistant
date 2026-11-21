@@ -63,6 +63,8 @@ interface Draft {
 	listId: string | null;
 	saving: boolean;
 	error: string;
+	/** What just happened to a subtask, said once. */
+	note: string;
 }
 
 function icon(path: string): TemplateResult {
@@ -208,6 +210,7 @@ export class PeckListCard extends LitElement {
 	disconnectedCallback(): void {
 		super.disconnectedCallback();
 		clearInterval(this._clock);
+		this._endDrag();
 		this._drop();
 	}
 
@@ -363,6 +366,7 @@ export class PeckListCard extends LitElement {
 			listId: lists.length > 1 && lists.some((l) => l.id === item.task.listId) ? item.task.listId : null,
 			saving: false,
 			error: '',
+			note: '',
 		};
 	}
 
@@ -389,15 +393,25 @@ export class PeckListCard extends LitElement {
 			);
 	}
 
-	/** A change to a subtask, sent straight away: the dialog's Save is for the task itself. */
-	private async _subtask(type: 'create' | 'update' | 'complete' | 'reopen' | 'delete', data: Record<string, unknown>, id?: string): Promise<void> {
+	/**
+	 * A change to a subtask, sent straight away: the dialog's Save is for the task itself. `toggling`
+	 * names a subtask being checked off or reopened, which shows where it is going meanwhile.
+	 */
+	private async _subtask(
+		type: 'create' | 'update' | 'complete' | 'reopen' | 'delete',
+		data: Record<string, unknown>,
+		toggling?: string,
+		done = '',
+	): Promise<void> {
 		const draft = this._draft;
 		if (!draft) return;
-		if (id) this._pending = new Set(this._pending).add(id);
+		if (toggling) this._pending = new Set(this._pending).add(toggling);
+		this._set({ error: '', note: '' });
 		try {
 			await this._send(type, draft.item, data);
+			if (done) this._set({ note: done });
 		} catch (err) {
-			if (id) this._pending = new Set([...this._pending].filter((each) => each !== id));
+			if (toggling) this._pending = new Set([...this._pending].filter((each) => each !== toggling));
 			this._set({ error: message(err) });
 		}
 	}
@@ -422,7 +436,7 @@ export class PeckListCard extends LitElement {
 			input.value = child.title;
 			return;
 		}
-		if (title !== child.title) void this._subtask('update', { task_id: child.id, changes: { title } }, child.id);
+		if (title !== child.title) void this._subtask('update', { task_id: child.id, changes: { title } });
 	}
 
 	private _set(change: Partial<Draft>): void {
@@ -993,7 +1007,7 @@ export class PeckListCard extends LitElement {
 							class="remove"
 							aria-label=${`Delete ${child.title}`}
 							title="Delete"
-							@click=${() => this._subtask('delete', { task_id: child.id }, child.id)}
+							@click=${() => this._subtask('delete', { task_id: child.id }, undefined, `${child.title} moved to the trash.`)}
 						>
 							${icon(icons.close)}
 						</button>
@@ -1001,6 +1015,7 @@ export class PeckListCard extends LitElement {
 				})}
 			</ul>
 			<input class="sub-add" type="text" maxlength="2000" aria-label="Add a subtask" placeholder="Add a subtask" @keydown=${this._addSubtask} />
+			${this._draft?.note ? html`<div class="note" role="status">${this._draft.note}</div>` : nothing}
 		`;
 	}
 
@@ -1038,14 +1053,12 @@ export class PeckListCard extends LitElement {
 			const time = item.time ? formatTime(item.time, language) : '';
 			const movable = item.canWrite && item.open;
 			return html`<button
+				data-task=${task.id}
 				class="ctask ${item.open ? '' : 'closed'} ${this._dragId === task.id ? 'lifted' : ''} ${movable ? 'movable' : ''}"
 				style="--c:${color(item)}"
 				title=${time ? `${time} ${task.title}` : task.title}
 				aria-label=${time ? `${task.title}, ${time}` : task.title}
 				@pointerdown=${(e: PointerEvent) => this._grab(e, item)}
-				@pointermove=${this._onDragMove}
-				@pointerup=${this._onDragEnd}
-				@pointercancel=${this._endDrag}
 				@touchmove=${this._touchMove}
 				@contextmenu=${(e: Event) => movable && e.preventDefault()}
 				@keydown=${(e: KeyboardEvent) => this._nudge(e, item, day)}
@@ -1111,6 +1124,10 @@ export class PeckListCard extends LitElement {
 		const drag: Drag = { item, pointer: event.pointerId, x: event.clientX, y: event.clientY, touch, active: false };
 		this._drag = drag;
 		(event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+		// On the window, so the drag still ends when a snapshot re-renders the chip away mid-drag.
+		window.addEventListener('pointermove', this._onDragMove, true);
+		window.addEventListener('pointerup', this._onDragEnd, true);
+		window.addEventListener('pointercancel', this._endDrag, true);
 		if (touch) drag.hold = setTimeout(() => this._lift(drag), HOLD_MS);
 	}
 
@@ -1160,6 +1177,9 @@ export class PeckListCard extends LitElement {
 	};
 
 	private _endDrag = (): void => {
+		window.removeEventListener('pointermove', this._onDragMove, true);
+		window.removeEventListener('pointerup', this._onDragEnd, true);
+		window.removeEventListener('pointercancel', this._endDrag, true);
 		if (this._drag) clearTimeout(this._drag.hold);
 		this._drag = null;
 		this._dragId = null;
@@ -1173,6 +1193,10 @@ export class PeckListCard extends LitElement {
 		if (!event.altKey || step === undefined || !item.canWrite || !item.open) return;
 		event.preventDefault();
 		void this._moveTo(item, addDays(day, step));
+		// The task is drawn again on its new day: keep the focus on it there.
+		void this.updateComplete.then(() =>
+			([...this.renderRoot.querySelectorAll<HTMLElement>('.ctask')].find((each) => each.dataset.task === item.task.id))?.focus(),
+		);
 	}
 
 	/** The calendar day under a point. */
@@ -1185,15 +1209,14 @@ export class PeckListCard extends LitElement {
 	/** Move a task to another day, keeping its time of day. */
 	private async _moveTo(item: Item, day: string): Promise<void> {
 		const id = item.task.id;
+		// Shown on its new day meanwhile; _pending is for a check on its way, which this is not.
 		this._moves = new Map(this._moves).set(id, day);
-		this._pending = new Set(this._pending).add(id);
 		try {
 			await this._send('update', item, { task_id: id, changes: dateChange(item.task, day, item.time) });
 		} catch (err) {
 			const moves = new Map(this._moves);
 			moves.delete(id);
 			this._moves = moves;
-			this._pending = new Set([...this._pending].filter((each) => each !== id));
 			this._problem = message(err);
 			setTimeout(() => (this._problem = ''), 6000);
 		}
