@@ -871,6 +871,19 @@ export const styles = css`
 		-webkit-box-orient: vertical;
 		overflow-wrap: anywhere;
 	}
+	/* A narrow week: one line a task, cut short, and the time left to the day's list below. */
+	@container (max-width: 480px) {
+		.cal.week .ctask {
+			white-space: nowrap;
+		}
+		.cal.week .ctask b {
+			display: none;
+		}
+		.cal.week .ctask span {
+			display: block;
+			overflow-wrap: normal;
+		}
+	}
 	.cday .more {
 		padding: 0 4px;
 		color: var(--pl-muted);
@@ -930,8 +943,11 @@ export const styles = css`
 	}
 	.two {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 		gap: 10px;
+	}
+	.two input {
+		min-width: 0;
 	}
 	.prio {
 		display: grid;

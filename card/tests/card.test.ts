@@ -639,4 +639,29 @@ describe('the card', () => {
 		await settle(card);
 		expect(writes(hass).map((w) => w.task_id)).toEqual(['b1', 'h1']);
 	});
+
+	it('Alt and an arrow into a busy day keep the focus on the moved task (QA)', async () => {
+		const hass = household(TODAY);
+		// Mow sorts before Logbook while it is still moving (its old day is earlier), and after it once
+		// the server has it on Logbook's day (by title): the day's order changes under the focus.
+		const day = `${TODAY.slice(0, 7)}-15`;
+		const ben = hass.people[0]!;
+		ben.tasks.find((t) => t.id === 'b2')!.schedule = { start: day, end: null, allDay: true };
+		ben.tasks.find((t) => t.id === 'b12')!.schedule = { start: addDays(day, 1), end: null, allDay: true };
+		const { card, root } = await mount({ view: 'calendar' }, hass);
+		const mow = chipOf(root, 'Mow the lawn');
+		mow.focus();
+		const alt = (key: string) =>
+			(root.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key, altKey: true, bubbles: true, cancelable: true }));
+		alt('ArrowRight');
+		await settle(card);
+		const next = root.querySelector(`.cday[data-day="${addDays(day, 1)}"]`)!;
+		const order = text(next, '.ctask');
+		expect(order.indexOf('Logbook entries')).toBeGreaterThanOrEqual(0);
+		expect(order.indexOf('Logbook entries')).toBeLessThan(order.indexOf('Mow the lawn'));
+		expect((root.activeElement as HTMLElement).textContent).toContain('Mow the lawn');
+		alt('ArrowRight');
+		await settle(card);
+		expect(writes(hass).map((w) => w.task_id)).toEqual(['b2', 'b2']);
+	});
 });

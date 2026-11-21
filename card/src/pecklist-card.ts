@@ -1,4 +1,5 @@
 import { LitElement, type TemplateResult, html, nothing, svg } from 'lit';
+import { repeat } from 'lit/directives/repeat.js';
 import {
 	DEFAULTS,
 	VIEWS,
@@ -124,6 +125,8 @@ export class PeckListCard extends LitElement {
 	private _hass?: HomeAssistant;
 	private _drag: Drag | null = null;
 	private _swallowClick = false;
+	/** A task moved from the keyboard: it keeps the focus until the server's answer is drawn. */
+	private _focusTask: string | null = null;
 	private _unsubscribe: (() => void)[] = [];
 	private _generation = 0;
 	private _wanted = '';
@@ -1103,7 +1106,12 @@ export class PeckListCard extends LitElement {
 						>
 							${Number(d.day.slice(8))}
 						</button>
-						${d.items.slice(0, d.items.length > most ? most - 1 : most).map((item) => chip(item, d.day))}
+						${repeat(
+							d.items.slice(0, d.items.length > most ? most - 1 : most),
+							// Keyed, so a chip keeps its element (and the focus) when the day's order changes.
+							(item) => item.task.id,
+							(item) => chip(item, d.day),
+						)}
 						${d.items.length > most ? html`<span class="more">+${d.items.length - most + 1}</span>` : nothing}
 					</div>`,
 				)}
@@ -1192,11 +1200,20 @@ export class PeckListCard extends LitElement {
 		const step = steps[event.key];
 		if (!event.altKey || step === undefined || !item.canWrite || !item.open) return;
 		event.preventDefault();
+		this._focusTask = item.task.id;
 		void this._moveTo(item, addDays(day, step));
-		// The task is drawn again on its new day: keep the focus on it there.
-		void this.updateComplete.then(() =>
-			([...this.renderRoot.querySelectorAll<HTMLElement>('.ctask')].find((each) => each.dataset.task === item.task.id))?.focus(),
-		);
+	}
+
+	/**
+	 * The moved task is drawn on its new day, then again where the server's answer sorts it. Moving a
+	 * focused element drops its focus, so give it back after each, until that answer is in.
+	 */
+	protected updated(): void {
+		const id = this._focusTask;
+		if (!id) return;
+		const chip = [...this.renderRoot.querySelectorAll<HTMLElement>('.ctask')].find((each) => each.dataset.task === id);
+		if (chip && (this.renderRoot as ShadowRoot).activeElement !== chip) chip.focus();
+		if (!this._moves.has(id)) this._focusTask = null;
 	}
 
 	/** The calendar day under a point. */
